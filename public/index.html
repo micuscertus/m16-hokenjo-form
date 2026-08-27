@@ -1,0 +1,913 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>目黒マルシェ 臨時出店届フォーム</title>
+<style>
+  :root {
+    --navy: #16215c;
+    --navy-dark: #0d1640;
+    --navy-tint: #eceef7;
+    --red: #cc1f2d;
+    --red-tint: #fbe9ea;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Hiragino Kaku Gothic ProN', 'Noto Sans JP', sans-serif;
+    background: #f5f5f5;
+    color: #333;
+    min-height: 100vh;
+  }
+
+  .container {
+    max-width: 680px;
+    margin: 0 auto;
+    padding: 20px 16px 60px;
+  }
+
+  header {
+    text-align: center;
+    padding: 24px 0 16px;
+  }
+
+  header h1 {
+    font-size: 19px;
+    font-weight: 700;
+    color: var(--navy);
+    margin-bottom: 4px;
+  }
+
+  header p {
+    font-size: 13px;
+    color: #666;
+  }
+
+  .card {
+    background: #fff;
+    border-radius: 12px;
+    padding: 20px;
+    margin-bottom: 16px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+  }
+
+  .card h2 {
+    font-size: 15px;
+    font-weight: 600;
+    margin-bottom: 14px;
+    color: var(--navy);
+    border-left: 4px solid var(--red);
+    padding-left: 8px;
+  }
+
+  .field {
+    margin-bottom: 16px;
+  }
+
+  .field:last-child { margin-bottom: 0; }
+
+  label {
+    display: block;
+    font-size: 13px;
+    font-weight: 600;
+    margin-bottom: 4px;
+    color: #333;
+  }
+
+  .help {
+    font-size: 12px;
+    color: #777;
+    margin-bottom: 6px;
+    line-height: 1.5;
+  }
+
+  .ng-example {
+    font-size: 12px;
+    color: #a15c00;
+    background: #fff8e6;
+    border-radius: 6px;
+    padding: 6px 8px;
+    margin-bottom: 6px;
+    line-height: 1.5;
+  }
+
+  input[type="text"],
+  input[type="number"],
+  textarea {
+    width: 100%;
+    padding: 10px 12px;
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    font-size: 15px;
+    font-family: inherit;
+    transition: border-color 0.2s;
+  }
+
+  textarea { resize: vertical; min-height: 60px; }
+
+  input:focus, textarea:focus {
+    outline: none;
+    border-color: var(--navy);
+  }
+
+  .field.has-error input,
+  .field.has-error textarea {
+    border-color: #dc3545;
+    background: #fff5f5;
+  }
+
+  .field-error {
+    display: none;
+    font-size: 12px;
+    color: #dc3545;
+    font-weight: 600;
+    margin-top: 6px;
+    padding: 6px 8px;
+    background: #fdeaea;
+    border-radius: 6px;
+  }
+
+  .field.has-error .field-error { display: block; }
+
+  .radio-group, .checkbox-group {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .radio-option, .checkbox-option {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 12px;
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 14px;
+  }
+
+  .radio-option:has(input:checked),
+  .checkbox-option:has(input:checked) {
+    border-color: var(--navy);
+    background: var(--navy-tint);
+  }
+
+  .radio-option input, .checkbox-option input {
+    width: 18px;
+    height: 18px;
+    flex-shrink: 0;
+  }
+
+  .ingredient-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 8px;
+  }
+
+  .ingredient-row span {
+    font-size: 13px;
+    color: #666;
+    width: 20px;
+    flex-shrink: 0;
+  }
+
+  .sub-field {
+    margin-top: 10px;
+    padding-left: 12px;
+    border-left: 2px solid #eee;
+  }
+
+  .hidden { display: none !important; }
+
+  .btn {
+    width: 100%;
+    padding: 14px;
+    border: none;
+    border-radius: 10px;
+    font-size: 16px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+
+  .btn-primary { background: var(--red); color: #fff; }
+  .btn-primary:hover { background: #a3161f; }
+  .btn-primary:disabled { background: #a0a0a0; cursor: not-allowed; }
+
+  .submit-note {
+    text-align: center;
+    font-size: 12px;
+    color: #888;
+    margin-top: 8px;
+  }
+
+  .banner {
+    padding: 14px 16px;
+    border-radius: 10px;
+    font-size: 14px;
+    font-weight: 600;
+    margin-bottom: 16px;
+    display: none;
+  }
+
+  .banner.show { display: block; }
+  .banner.ok { background: var(--navy-tint); color: var(--navy); }
+  .banner.ng { background: #f8d7da; color: #721c24; }
+  .banner.ai { background: #fff3cd; color: #856404; }
+
+  .ai-error-list {
+    margin-top: 8px;
+    padding-left: 18px;
+    font-weight: 400;
+  }
+
+  .loading {
+    display: none;
+    text-align: center;
+    padding: 40px 20px;
+  }
+
+  .loading.active { display: block; }
+
+  .spinner {
+    width: 40px;
+    height: 40px;
+    border: 3px solid #e0e0e0;
+    border-top-color: var(--navy);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+    margin: 0 auto 16px;
+  }
+
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .loading-text { font-size: 14px; color: #666; }
+
+  .done-screen { display: none; text-align: center; padding: 40px 20px; }
+  .done-screen.active { display: block; }
+  .done-icon { font-size: 48px; margin-bottom: 12px; }
+  .done-screen h2 { color: var(--navy); margin-bottom: 8px; }
+  .done-screen p { color: #666; font-size: 14px; }
+</style>
+</head>
+<body>
+<div class="container">
+  <header>
+    <h1>目黒マルシェ 臨時出店届フォーム</h1>
+    <p>質問に答えていくだけで書類が完成します。内容に問題があるとその場で表示されます。</p>
+  </header>
+
+  <div id="formWrap">
+    <div class="banner ng" id="topError"></div>
+
+    <!-- 出店者情報 -->
+    <div class="card">
+      <h2>出店者情報</h2>
+
+      <div class="field" data-field="address">
+        <label>出店者の住所</label>
+        <input type="text" id="address" placeholder="例：目黒区下目黒5-1-11">
+        <div class="field-error"></div>
+      </div>
+
+      <div class="field" data-field="shopName">
+        <label>店名</label>
+        <input type="text" id="shopName" placeholder="例：やまもとキッチン">
+        <div class="field-error"></div>
+      </div>
+
+      <div class="field" data-field="personName">
+        <label>担当者の個人名</label>
+        <div class="help">屋号・法人名だけでは不可です。実際に対応する個人の氏名を入力してください。</div>
+        <input type="text" id="personName" placeholder="例：山本 太郎">
+        <div class="field-error"></div>
+      </div>
+
+      <div class="field" data-field="phone">
+        <label>電話番号</label>
+        <input type="text" id="phone" placeholder="例：03-1234-5678">
+        <div class="field-error"></div>
+      </div>
+
+      <div class="field" data-field="cumulativeDays">
+        <label>本年度の累計出店日数（今回の出店日数を含む）</label>
+        <input type="number" id="cumulativeDays" placeholder="例：2">
+        <div class="field-error"></div>
+      </div>
+    </div>
+
+    <!-- 業態区分 -->
+    <div class="card">
+      <h2>業態区分</h2>
+      <div class="ng-example">よくある間違い：「その場で調理して提供」と「完成品を販売するのみ」の両方を選んでしまうケース。どちらか一方だけを選んでください。</div>
+      <div class="field" data-field="businessType">
+        <div class="radio-group">
+          <label class="radio-option">
+            <input type="radio" name="businessType" value="restaurant">
+            飲食店（その場で調理して提供する）
+          </label>
+          <label class="radio-option">
+            <input type="radio" name="businessType" value="retail">
+            食品物販（完成品を販売するのみ）
+          </label>
+        </div>
+        <div class="field-error"></div>
+      </div>
+    </div>
+
+    <!-- 飲食店セクション -->
+    <div id="restaurantSection" class="hidden">
+      <div class="card">
+        <h2>取扱食品（飲食店）</h2>
+
+        <div class="field" data-field="foodName">
+          <label>取扱食品名</label>
+          <div class="help">1品のみ記載してください（複数書くと弾かれます）。複数扱う場合も、メインの1品だけ（または許可が通りやすいもの1品）を記載してください。</div>
+          <input type="text" id="foodName" placeholder="例：バインミー焼">
+          <div class="field-error"></div>
+        </div>
+
+        <div class="field" data-field="servingCount">
+          <label>提供数</label>
+          <input type="number" id="servingCount" placeholder="例：2000">
+          <div class="field-error"></div>
+        </div>
+
+        <div class="field" data-field="ingredients">
+          <label>使う食材（できるだけ記載。3つに満たなくても構いません）</label>
+          <div class="ng-example">
+            <strong>使用不可の材料（許可が通りません）</strong><br>
+            ・白米<br>
+            ・牛乳（オーツミルク・豆乳等に変更してください）<br><br>
+            <strong>生野菜・レモン等を生のまま提供することはできません（保健所に確認済み。許可施設でカットしても、生のまま出すこと自体が不可）。</strong>必ず加熱調理する内容にしてください。加熱する場合以外は記載しないようお願いします。
+          </div>
+          <div class="ingredient-row"><span>①</span><input type="text" id="ingredient1" placeholder="例：豚肉"></div>
+          <div class="ingredient-row"><span>②</span><input type="text" id="ingredient2" placeholder="例：パン（無ければ空欄で可）"></div>
+          <div class="ingredient-row"><span>③</span><input type="text" id="ingredient3" placeholder="例：ソース（無ければ空欄で可）"></div>
+          <div class="field-error"></div>
+        </div>
+
+        <div class="field" data-field="ingredientSourceType">
+          <label>食材について</label>
+          <div class="radio-group">
+            <label class="radio-option"><input type="radio" name="ingredientSourceType" value="purchase">購入する</label>
+            <label class="radio-option"><input type="radio" name="ingredientSourceType" value="selfmade">保健所許可のある場所で自家製造する</label>
+          </div>
+          <div class="help">自家製造の場合は、保健所の許可のある施設である必要があります。</div>
+          <div class="field-error"></div>
+
+          <div class="sub-field hidden" id="ingredientPurchaseSub">
+            <div class="field" data-field="ingredientSourceName">
+              <label>材料の購入先（名前）</label>
+              <div class="help">市販品を使う場合でも、購入先の記載は必須です。</div>
+              <input type="text" id="ingredientSourceName" placeholder="例：木村肉卸売店">
+              <div class="field-error"></div>
+            </div>
+            <div class="field" data-field="ingredientSourceAddress">
+              <label>材料の購入先（住所）</label>
+              <div class="help">国内の店舗の住所を記載してください。</div>
+              <input type="text" id="ingredientSourceAddress" placeholder="例：目黒区目黒1-2-3">
+              <div class="field-error"></div>
+            </div>
+          </div>
+
+          <div class="sub-field hidden" id="ingredientSelfmadeSub">
+            <div class="field" data-field="facility">
+              <label>製造許可施設の名称・住所</label>
+              <input type="text" id="facilityNameRest" placeholder="施設名" style="margin-bottom:8px">
+              <input type="text" id="facilityAddressRest" placeholder="施設住所">
+              <div class="field-error"></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="field" data-field="prep">
+          <label>仕込みについて</label>
+          <div class="ng-example">出店ブースその場での野菜・具材のカットは不可です（保健所に確認済み）。カット等の下ごしらえは必ず許可のある施設（またはシェアキッチン等）で、当日行ってください。</div>
+          <div class="radio-group">
+            <label class="radio-option"><input type="radio" name="prep" value="onsite">保健所許可のある施設（またはシェアキッチン等）で当日仕込みあり</label>
+            <label class="radio-option"><input type="radio" name="prep" value="none">仕込みなし</label>
+          </div>
+          <div class="field-error"></div>
+
+          <div class="sub-field hidden" id="prepSub">
+            <div class="ng-example">許可施設でカットした場合でも、生のまま提供することはできません。当日必ず加熱調理してください。</div>
+            <div class="field" data-field="prepFacility">
+              <label>仕込みを行う施設の名称・住所</label>
+              <input type="text" id="prepFacilityName" placeholder="施設名（例：○○シェアキッチン）" style="margin-bottom:8px">
+              <input type="text" id="prepFacilityAddress" placeholder="施設住所">
+              <div class="field-error"></div>
+            </div>
+            <div class="field" data-field="prepDetail">
+              <label>当日仕込み内容</label>
+              <div class="help">許可施設で何をするかを具体的に書いてください。</div>
+              <textarea id="prepDetail" placeholder="例：干しシイタケを水で戻しておく"></textarea>
+              <div class="field-error"></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="field" data-field="cookingMethod">
+          <label>調理方法（主たるもの1つのみ）</label>
+          <div class="ng-example">2種類以上は選べません。「茹でる」（大量の水を使う調理）は設備上不可です。</div>
+          <div class="ng-example">加熱せず生のまま提供すること（切っただけ・盛っただけ等）はできません（保健所に確認済み）。「よそう」「カップに注ぐ」「その他」を選ぶ場合も、中身は加熱調理済みのものにしてください。</div>
+          <div class="radio-group">
+            <label class="radio-option"><input type="radio" name="cookingMethod" value="grill">焼く</label>
+            <label class="radio-option"><input type="radio" name="cookingMethod" value="boil">煮る（大量の水を使う煮沸・茹では不可）</label>
+            <label class="radio-option"><input type="radio" name="cookingMethod" value="steam">蒸す</label>
+            <label class="radio-option"><input type="radio" name="cookingMethod" value="fry">揚げる</label>
+            <label class="radio-option"><input type="radio" name="cookingMethod" value="season">味付けする</label>
+            <label class="radio-option"><input type="radio" name="cookingMethod" value="pour">カップに注ぐ</label>
+            <label class="radio-option"><input type="radio" name="cookingMethod" value="plate">よそう（盛り付ける）</label>
+            <label class="radio-option"><input type="radio" name="cookingMethod" value="other">その他</label>
+          </div>
+          <div class="field-error"></div>
+
+          <div class="sub-field hidden" id="cookingOtherSub">
+            <div class="field" data-field="cookingMethodOther">
+              <label>具体的な調理方法</label>
+              <div class="ng-example">「温める」「熱湯を注ぐ」だけでは曖昧です。「十分に加熱する」「市販のティーバッグで一杯ずつ抽出する」のように具体的に書いてください。自家調合のシロップ等を炭酸水で割る場合は、清涼飲料水製造業の許可の有無も分かるように書いてください。</div>
+              <textarea id="cookingMethodOther" placeholder="例：市販のドリップバッグで一杯ずつ抽出する"></textarea>
+              <div class="field-error"></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="field" data-field="storage">
+          <label>保存方法</label>
+          <div class="radio-group">
+            <label class="radio-option"><input type="radio" name="storage" value="normal">常温</label>
+            <label class="radio-option"><input type="radio" name="storage" value="cold">冷蔵（クーラーBOX等）</label>
+            <label class="radio-option"><input type="radio" name="storage" value="frozen">冷凍</label>
+            <label class="radio-option"><input type="radio" name="storage" value="other">その他</label>
+          </div>
+          <div class="field-error"></div>
+          <div class="sub-field hidden" id="storageOtherSubR">
+            <div class="field" data-field="storageOther">
+              <label>保存方法の内容</label>
+              <input type="text" id="storageOtherR" placeholder="例：保冷剤入りの専用ケースで保管">
+              <div class="field-error"></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="field" data-field="serveMethod">
+          <label>提供方法</label>
+          <div class="checkbox-group">
+            <label class="checkbox-option"><input type="checkbox" name="serveMethod" value="disposable">使い捨て容器にて提供</label>
+            <label class="checkbox-option"><input type="checkbox" name="serveMethod" value="cup">使い捨てカップにて提供</label>
+            <label class="checkbox-option"><input type="checkbox" name="serveMethod" value="other">その他</label>
+          </div>
+          <div class="field-error"></div>
+          <div class="sub-field hidden" id="serveMethodOtherSub">
+            <div class="field" data-field="serveMethodOther">
+              <label>その他の提供方法</label>
+              <input type="text" id="serveMethodOther" placeholder="例：紙皿にて提供">
+              <div class="field-error"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 食品物販セクション -->
+    <div id="retailSection" class="hidden">
+      <div class="card">
+        <h2>取扱食品（食品物販）</h2>
+
+        <div class="field" data-field="foodName_r">
+          <label>取扱食品名</label>
+          <div class="help">1品のみ記載してください（複数書くと弾かれます）。複数扱う場合も、メインの1品だけ（または許可が通りやすいもの1品）を記載してください。</div>
+          <input type="text" id="foodNameRetail" placeholder="例：焼き菓子セット">
+          <div class="field-error"></div>
+        </div>
+
+        <div class="field" data-field="supplierName">
+          <label>仕入先の名前</label>
+          <input type="text" id="supplierName" placeholder="例：マルニャン物産">
+          <div class="field-error"></div>
+        </div>
+
+        <div class="field" data-field="selfMade">
+          <label>仕入れ先</label>
+          <div class="radio-group">
+            <label class="radio-option"><input type="radio" name="selfMade" value="no">購入する</label>
+            <label class="radio-option"><input type="radio" name="selfMade" value="yes">保健所許可のある場所で自家製造したものを販売する</label>
+          </div>
+          <div class="help">自家製造の場合は、保健所の許可のある施設か確認します。</div>
+          <div class="field-error"></div>
+
+          <div class="sub-field hidden" id="selfMadeYesSub">
+            <div class="field" data-field="facility">
+              <label>製造許可施設の名称・住所</label>
+              <input type="text" id="facilityName" placeholder="施設名" style="margin-bottom:8px">
+              <input type="text" id="facilityAddress" placeholder="施設住所">
+              <div class="field-error"></div>
+            </div>
+          </div>
+
+          <div class="sub-field hidden" id="selfMadeNoSub">
+            <div class="field" data-field="supplierAddress">
+              <label>材料の購入先（住所）</label>
+              <div class="help">国内の仕入先住所を記載してください。</div>
+              <input type="text" id="supplierAddress" placeholder="例：目黒区目黒1-2-3">
+              <div class="field-error"></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="field" data-field="packagingConfirmed">
+          <label>販売方法</label>
+          <label class="checkbox-option">
+            <input type="checkbox" id="packagingConfirmed">
+            包装済み完成品を販売する（表示ラベルあり）
+          </label>
+          <div class="field-error"></div>
+        </div>
+
+        <div class="field" data-field="isFrozen">
+          <label class="checkbox-option">
+            <input type="checkbox" id="isFrozen">
+            冷凍食品を扱う
+          </label>
+          <div class="sub-field hidden" id="frozenSub">
+            <label class="checkbox-option">
+              <input type="checkbox" id="frozenLabelConfirmed">
+              「冷凍食品である旨」の表示がある
+            </label>
+            <div class="field-error"></div>
+          </div>
+        </div>
+
+        <div class="field" data-field="storage_r">
+          <label>保存方法</label>
+          <div class="radio-group">
+            <label class="radio-option"><input type="radio" name="storageRetail" value="normal">常温保存</label>
+            <label class="radio-option"><input type="radio" name="storageRetail" value="cold">クーラーボックス等で冷蔵保管</label>
+            <label class="radio-option"><input type="radio" name="storageRetail" value="other">その他</label>
+          </div>
+          <div class="field-error"></div>
+          <div class="sub-field hidden" id="storageOtherSubT">
+            <div class="field" data-field="storageOther_r">
+              <label>保存方法の内容</label>
+              <input type="text" id="storageOtherT" placeholder="例：保冷剤入りの専用ケースで保管">
+              <div class="field-error"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <button class="btn btn-primary" id="submitBtn">内容を送信する</button>
+      <div class="submit-note">送信すると内容がチェックされます。問題がある場合は該当箇所が表示されます。</div>
+    </div>
+  </div>
+
+  <div class="loading" id="loading">
+    <div class="spinner"></div>
+    <div class="loading-text">内容を確認しています...</div>
+  </div>
+
+  <div class="done-screen" id="doneScreen">
+    <div class="done-icon">✅</div>
+    <h2>受付完了しました</h2>
+    <p>内容に問題は見つかりませんでした。主催者側で確認のうえ、必要があれば追ってご連絡します。</p>
+  </div>
+</div>
+
+<script>
+(function () {
+  const restaurantSection = document.getElementById('restaurantSection');
+  const retailSection = document.getElementById('retailSection');
+
+  function setError(fieldName, message) {
+    const el = document.querySelector(`[data-field="${fieldName}"]`);
+    if (!el) return;
+    if (message) {
+      el.classList.add('has-error');
+      const errEl = el.querySelector('.field-error');
+      if (errEl) errEl.textContent = message;
+    } else {
+      el.classList.remove('has-error');
+    }
+  }
+
+  function clearAllErrors() {
+    document.querySelectorAll('.field').forEach((el) => el.classList.remove('has-error'));
+  }
+
+  // ===== 入力した瞬間に効く即時チェック（サーバー側の決定的チェックと同じ基準） =====
+  const BANNED_INGREDIENT_KEYWORDS = ['牛乳', '生乳', '白米'];
+  const SELF_MADE_DRINK_KEYWORDS = ['シロップ', 'コーディアル', '自家製ドリンク', '自家調合', '自家製シロップ'];
+  const VAGUE_COOKING_PHRASES = ['温める', '熱湯を注ぐ', 'あたためる'];
+  const RAW_OR_HEAT_NEEDED_KEYWORDS = ['きゅうり', 'レタス', 'トマト', 'キャベツ', '水菜', 'パクチー', 'もやし', 'レモン', '生野菜', '生の野菜', '生の果物', '焼きそば', 'そば', 'うどん', 'ラーメン', 'パスタ', '麺', '豚肉', '鶏肉', '牛肉', 'ひき肉', '魚', 'エビ', 'イカ', 'タコ', '卵'];
+  const HEAT_COOKING_METHODS = ['grill', 'boil', 'steam', 'fry'];
+  const DRY_SAFE_KEYWORDS = ['乾麺', '乾き物', '乾物', 'せんべい', 'クッキー', 'ビスケット', '飴', 'キャンディ', 'ポップコーン', 'スナック', 'ドライフルーツ', '焼き菓子', '駄菓子', 'チップス', 'ナッツ'];
+
+  function containsAny(text, keywords) {
+    if (!text) return null;
+    return keywords.find((k) => text.includes(k)) || null;
+  }
+
+  function looksLikeMultipleItems(text) {
+    if (!text) return false;
+    return /[\s,、]/.test(text.trim());
+  }
+
+  function getFoodNameAndIngredients() {
+    const foodName = document.getElementById('foodName')?.value.trim() || '';
+    const ing1 = document.getElementById('ingredient1')?.value.trim() || '';
+    const ing2 = document.getElementById('ingredient2')?.value.trim() || '';
+    const ing3 = document.getElementById('ingredient3')?.value.trim() || '';
+    return { foodName, ing1, ing2, ing3 };
+  }
+
+  function checkFoodNameLive() {
+    const foodName = document.getElementById('foodName')?.value.trim() || '';
+    if (looksLikeMultipleItems(foodName)) {
+      setError('foodName', '取扱食品名は1品のみ記載してください。複数書くと許可が通りません。');
+      return;
+    }
+    setError('foodName', null);
+  }
+
+  function checkIngredientsLive() {
+    const { foodName, ing1, ing2, ing3 } = getFoodNameAndIngredients();
+    const cookingOther = document.getElementById('cookingMethodOther')?.value.trim() || '';
+
+    for (const ing of [ing1, ing2, ing3]) {
+      const banned = containsAny(ing, BANNED_INGREDIENT_KEYWORDS);
+      if (banned) {
+        setError('ingredients', `「${banned}」は臨時出店では使用できません。オーツミルク・豆乳など代替品に変更してください。`);
+        return;
+      }
+    }
+
+    const drinkText = [foodName, ing1, ing2, ing3, cookingOther].filter(Boolean).join(' ');
+    const drinkHit = containsAny(drinkText, SELF_MADE_DRINK_KEYWORDS);
+    if (drinkHit) {
+      setError('ingredients', `「${drinkHit}」を使う自家調合ドリンクは、清涼飲料水製造業の許可が必要になります。この許可を取っていない場合は、市販品をそのまま小分けにする、または市販のティーバッグ・ドリップバッグで一杯ずつ抽出する方法に変更してください。`);
+      return;
+    }
+
+    setError('ingredients', null);
+  }
+
+  function checkCookingMethodLive() {
+    const selected = document.querySelector('input[name="cookingMethod"]:checked')?.value;
+    if (selected === 'boil') {
+      setError('cookingMethod', '大量の水を使う調理（茹でる）は臨時出店の設備では認められません。他の調理方法に変更してください。');
+      return;
+    }
+
+    if (selected) {
+      const { foodName, ing1, ing2, ing3 } = getFoodNameAndIngredients();
+      const rawText = [foodName, ing1, ing2, ing3].filter(Boolean).join(' ');
+      const rawHit = containsAny(rawText, RAW_OR_HEAT_NEEDED_KEYWORDS);
+      if (rawHit && !HEAT_COOKING_METHODS.includes(selected)) {
+        setError('cookingMethod', `「${rawHit}」は加熱調理が必要な食材の可能性があります。保健所の確認では生のまま提供することはできません。調理方法で「焼く」「煮る」「蒸す」「揚げる」のいずれかを選んでください。`);
+        return;
+      }
+    }
+    setError('cookingMethod', null);
+
+    if (selected === 'other') {
+      const other = document.getElementById('cookingMethodOther')?.value.trim() || '';
+      const vague = containsAny(other, VAGUE_COOKING_PHRASES);
+      if (vague && other.length < 12) {
+        setError('cookingMethodOther', `「${vague}」だけでは曖昧です。「十分に加熱する」「市販のティーバッグで一杯ずつ抽出する」のように具体的な工程を明記してください。`);
+        return;
+      }
+      setError('cookingMethodOther', null);
+    }
+  }
+
+  function checkStorageLive() {
+    const selected = document.querySelector('input[name="storage"]:checked')?.value;
+    if (selected !== 'normal') {
+      if (selected) setError('storage', null);
+      return;
+    }
+    const { foodName, ing1, ing2, ing3 } = getFoodNameAndIngredients();
+    const dryHit = containsAny([foodName, ing1, ing2, ing3].filter(Boolean).join(' '), DRY_SAFE_KEYWORDS);
+    if (!dryHit) {
+      setError('storage', '常温保存が適さない可能性があります。乾麺・乾き物など水分が少なく傷みにくい食品でなければ、冷蔵または冷凍を選んでください。');
+      return;
+    }
+    setError('storage', null);
+  }
+
+  ['ingredient1', 'ingredient2', 'ingredient3', 'foodName', 'cookingMethodOther'].forEach((id) => {
+    document.getElementById(id)?.addEventListener('input', () => {
+      checkFoodNameLive();
+      checkIngredientsLive();
+      checkCookingMethodLive();
+      checkStorageLive();
+    });
+  });
+  document.querySelectorAll('input[name="cookingMethod"]').forEach((el) => {
+    el.addEventListener('change', () => { checkCookingMethodLive(); checkStorageLive(); });
+  });
+  document.querySelectorAll('input[name="storage"]').forEach((el) => {
+    el.addEventListener('change', checkStorageLive);
+  });
+
+  // 業態区分でセクション出し分け
+  document.querySelectorAll('input[name="businessType"]').forEach((el) => {
+    el.addEventListener('change', () => {
+      const v = document.querySelector('input[name="businessType"]:checked')?.value;
+      restaurantSection.classList.toggle('hidden', v !== 'restaurant');
+      retailSection.classList.toggle('hidden', v !== 'retail');
+    });
+  });
+
+  // 食材について（購入／自家製造）サブフィールド
+  document.querySelectorAll('input[name="ingredientSourceType"]').forEach((el) => {
+    el.addEventListener('change', () => {
+      const v = document.querySelector('input[name="ingredientSourceType"]:checked')?.value;
+      document.getElementById('ingredientPurchaseSub').classList.toggle('hidden', v !== 'purchase');
+      document.getElementById('ingredientSelfmadeSub').classList.toggle('hidden', v !== 'selfmade');
+    });
+  });
+
+  // 仕込みサブフィールド
+  document.querySelectorAll('input[name="prep"]').forEach((el) => {
+    el.addEventListener('change', () => {
+      const v = document.querySelector('input[name="prep"]:checked')?.value;
+      document.getElementById('prepSub').classList.toggle('hidden', v !== 'onsite');
+    });
+  });
+
+
+  // 調理方法その他
+  document.querySelectorAll('input[name="cookingMethod"]').forEach((el) => {
+    el.addEventListener('change', () => {
+      const v = document.querySelector('input[name="cookingMethod"]:checked')?.value;
+      document.getElementById('cookingOtherSub').classList.toggle('hidden', v !== 'other');
+    });
+  });
+
+  // 保存方法その他（飲食店）
+  document.querySelectorAll('input[name="storage"]').forEach((el) => {
+    el.addEventListener('change', () => {
+      const v = document.querySelector('input[name="storage"]:checked')?.value;
+      document.getElementById('storageOtherSubR').classList.toggle('hidden', v !== 'other');
+    });
+  });
+
+  // 保存方法その他（物販）
+  document.querySelectorAll('input[name="storageRetail"]').forEach((el) => {
+    el.addEventListener('change', () => {
+      const v = document.querySelector('input[name="storageRetail"]:checked')?.value;
+      document.getElementById('storageOtherSubT').classList.toggle('hidden', v !== 'other');
+    });
+  });
+
+  // 製造区分サブフィールド
+  document.querySelectorAll('input[name="selfMade"]').forEach((el) => {
+    el.addEventListener('change', () => {
+      const v = document.querySelector('input[name="selfMade"]:checked')?.value;
+      document.getElementById('selfMadeYesSub').classList.toggle('hidden', v !== 'yes');
+      document.getElementById('selfMadeNoSub').classList.toggle('hidden', v !== 'no');
+    });
+  });
+
+  // 冷凍食品サブフィールド
+  document.getElementById('isFrozen').addEventListener('change', (e) => {
+    document.getElementById('frozenSub').classList.toggle('hidden', !e.target.checked);
+  });
+
+  // 提供方法「その他」サブフィールド
+  document.querySelectorAll('input[name="serveMethod"]').forEach((el) => {
+    el.addEventListener('change', () => {
+      const checkedOther = document.querySelector('input[name="serveMethod"][value="other"]')?.checked;
+      document.getElementById('serveMethodOtherSub').classList.toggle('hidden', !checkedOther);
+    });
+  });
+
+  // ブラウザの戻る/再読み込みで前回の入力が残っていることがあるため、
+  // 読み込み時に必ず未選択・未入力の状態にリセットする
+  function resetFormOnLoad() {
+    document.querySelectorAll('input[type="radio"], input[type="checkbox"]').forEach((el) => { el.checked = false; });
+    document.querySelectorAll('input[type="text"], input[type="number"], textarea').forEach((el) => { el.value = ''; });
+    document.querySelectorAll('.sub-field').forEach((el) => el.classList.add('hidden'));
+    restaurantSection.classList.add('hidden');
+    retailSection.classList.add('hidden');
+    clearAllErrors();
+  }
+  resetFormOnLoad();
+  window.addEventListener('pageshow', resetFormOnLoad);
+
+  function collectData() {
+    const businessType = document.querySelector('input[name="businessType"]:checked')?.value || null;
+    const d = {
+      address: document.getElementById('address').value.trim(),
+      shopName: document.getElementById('shopName').value.trim(),
+      personName: document.getElementById('personName').value.trim(),
+      phone: document.getElementById('phone').value.trim(),
+      cumulativeDays: document.getElementById('cumulativeDays').value.trim(),
+      businessType,
+    };
+
+    if (businessType === 'restaurant') {
+      d.foodName = document.getElementById('foodName').value.trim();
+      d.servingCount = document.getElementById('servingCount').value.trim();
+      d.ingredients = [
+        document.getElementById('ingredient1').value.trim(),
+        document.getElementById('ingredient2').value.trim(),
+        document.getElementById('ingredient3').value.trim(),
+      ];
+      d.ingredientSourceType = document.querySelector('input[name="ingredientSourceType"]:checked')?.value || null;
+      d.ingredientSourceName = document.getElementById('ingredientSourceName').value.trim();
+      d.ingredientSourceAddress = document.getElementById('ingredientSourceAddress').value.trim();
+      d.facilityName = document.getElementById('facilityNameRest').value.trim();
+      d.facilityAddress = document.getElementById('facilityAddressRest').value.trim();
+      d.prep = document.querySelector('input[name="prep"]:checked')?.value || null;
+      d.prepFacilityName = document.getElementById('prepFacilityName').value.trim();
+      d.prepFacilityAddress = document.getElementById('prepFacilityAddress').value.trim();
+      d.prepDetail = document.getElementById('prepDetail').value.trim();
+      d.cookingMethod = document.querySelector('input[name="cookingMethod"]:checked')?.value || null;
+      d.cookingMethodOther = document.getElementById('cookingMethodOther').value.trim();
+      d.storage = document.querySelector('input[name="storage"]:checked')?.value || null;
+      d.storageOther = document.getElementById('storageOtherR').value.trim();
+      d.serveMethod = Array.from(document.querySelectorAll('input[name="serveMethod"]:checked')).map((el) => el.value);
+      d.serveMethodOther = document.getElementById('serveMethodOther').value.trim();
+    } else if (businessType === 'retail') {
+      d.foodName = document.getElementById('foodNameRetail').value.trim();
+      d.supplierName = document.getElementById('supplierName').value.trim();
+      d.selfMade = document.querySelector('input[name="selfMade"]:checked')?.value || null;
+      d.facilityName = document.getElementById('facilityName').value.trim();
+      d.facilityAddress = document.getElementById('facilityAddress').value.trim();
+      d.supplierAddress = document.getElementById('supplierAddress').value.trim();
+      d.packagingConfirmed = document.getElementById('packagingConfirmed').checked;
+      d.isFrozen = document.getElementById('isFrozen').checked;
+      d.frozenLabelConfirmed = document.getElementById('frozenLabelConfirmed').checked;
+      d.storage = document.querySelector('input[name="storageRetail"]:checked')?.value || null;
+      d.storageOther = document.getElementById('storageOtherT').value.trim();
+    }
+
+    return d;
+  }
+
+  const submitBtn = document.getElementById('submitBtn');
+  const topError = document.getElementById('topError');
+  const loading = document.getElementById('loading');
+  const formWrap = document.getElementById('formWrap');
+  const doneScreen = document.getElementById('doneScreen');
+
+  submitBtn.addEventListener('click', async () => {
+    clearAllErrors();
+    topError.classList.remove('show');
+
+    const d = collectData();
+
+    formWrap.classList.add('hidden');
+    loading.classList.add('active');
+
+    try {
+      const res = await fetch('/api/submit', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(d),
+      });
+      const data = await res.json();
+
+      if (data.ok) {
+        loading.classList.remove('active');
+        doneScreen.classList.add('active');
+        return;
+      }
+
+      // エラー表示
+      formWrap.classList.remove('hidden');
+      loading.classList.remove('active');
+
+      if (data.stage === 'structure') {
+        Object.entries(data.fieldErrors).forEach(([field, msg]) => setError(field, msg));
+        topError.textContent = '入力内容に不備があります。赤字の箇所を確認してください。';
+        topError.classList.add('show');
+      } else if (data.stage === 'semantic') {
+        const list = Object.values(data.fieldErrors).map((m) => `<li>${m}</li>`).join('');
+        topError.className = 'banner ai show';
+        topError.innerHTML = `AIによる確認で、以下の点が保健所提出時に問題になる可能性があります。内容を見直して再送信してください。<ul class="ai-error-list">${list}</ul>`;
+      } else {
+        topError.textContent = data.error || '送信に失敗しました。もう一度お試しください。';
+        topError.classList.add('show');
+      }
+
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    } catch (err) {
+      formWrap.classList.remove('hidden');
+      loading.classList.remove('active');
+      topError.textContent = '通信エラーが発生しました。もう一度お試しください。';
+      topError.classList.add('show');
+    }
+  });
+})();
+</script>
+</body>
+</html>
