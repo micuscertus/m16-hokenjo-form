@@ -321,17 +321,22 @@ async function writeToSheet(d, pdfLink) {
   });
 }
 
-// ===== Google Sheets 読み込み（申し込み一覧・まとめダウンロード用） =====
-async function readSubmissionRows() {
-  if (!process.env.GOOGLE_CREDENTIALS_JSON) return [];
-
+// ===== Google Sheets 読み込み・削除で共有するクライアント =====
+function getSheetsClient() {
+  if (!process.env.GOOGLE_CREDENTIALS_JSON) return null;
   const credentials = JSON.parse(process.env.GOOGLE_CREDENTIALS_JSON);
   const auth = new google.auth.GoogleAuth({
     credentials,
     scopes: ['https://www.googleapis.com/auth/spreadsheets'],
   });
+  return google.sheets({ version: 'v4', auth });
+}
 
-  const sheets = google.sheets({ version: 'v4', auth });
+// ===== Google Sheets 読み込み（申し込み一覧・まとめダウンロード用） =====
+async function readSubmissionRows() {
+  const sheets = getSheetsClient();
+  if (!sheets) return [];
+
   const spreadsheetId = process.env.SPREADSHEET_ID;
   const sheetName = process.env.SHEET_NAME || '臨時出店フォーム受付';
 
@@ -350,6 +355,51 @@ async function readSubmissionRows() {
     pdfLink: row[7] || '',
     dataJson: row[8] || '',
   }));
+}
+
+// ===== 申し込み行の削除（対応するDrive上のPDFも削除） =====
+async function deleteSubmissionRow(rowNumber) {
+  const sheets = getSheetsClient();
+  if (!sheets) throw new Error('GOOGLE_CREDENTIALS_JSON未設定');
+
+  const spreadsheetId = process.env.SPREADSHEET_ID;
+  const sheetName = process.env.SHEET_NAME || '臨時出店フォーム受付';
+
+  const rows = await readSubmissionRows();
+  const target = rows.find((r) => r.rowNumber === rowNumber);
+
+  if (target && target.pdfLink) {
+    const match = target.pdfLink.match(/\/d\/([^/]+)/);
+    const auth = getOAuth2Client();
+    if (match && auth) {
+      const drive = google.drive({ version: 'v3', auth });
+      await drive.files.delete({ fileId: match[1] }).catch((e) => {
+        console.error('Drive PDF削除エラー:', e.message);
+      });
+    }
+  }
+
+  const meta = await sheets.spreadsheets.get({ spreadsheetId });
+  const sheet = meta.data.sheets.find((s) => s.properties.title === sheetName);
+  if (!sheet) throw new Error(`シート「${sheetName}」が見つかりません`);
+
+  await sheets.spreadsheets.batchUpdate({
+    spreadsheetId,
+    requestBody: {
+      requests: [
+        {
+          deleteDimension: {
+            range: {
+              sheetId: sheet.properties.sheetId,
+              dimension: 'ROWS',
+              startIndex: rowNumber - 1,
+              endIndex: rowNumber,
+            },
+          },
+        },
+      ],
+    },
+  });
 }
 
 function requireAdminKey(req, res, next) {
@@ -640,6 +690,21 @@ app.get('/api/submissions', requireAdminKey, async (req, res) => {
     });
   } catch (error) {
     console.error('一覧取得エラー:', error.message);
+    res.status(500).json({ ok: false, error: error.message });
+  }
+});
+
+// ===== 申し込み行の削除（管理用） =====
+app.delete('/api/submissions/:rowNumber', requireAdminKey, async (req, res) => {
+  try {
+    const rowNumber = Number(req.params.rowNumber);
+    if (!Number.isInteger(rowNumber) || rowNumber < 2) {
+      return res.status(400).json({ ok: false, error: '不正なrowNumberです。' });
+    }
+    await deleteSubmissionRow(rowNumber);
+    res.json({ ok: true });
+  } catch (error) {
+    console.error('申し込み削除エラー:', error.message);
     res.status(500).json({ ok: false, error: error.message });
   }
 });

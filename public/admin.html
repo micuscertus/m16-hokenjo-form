@@ -36,7 +36,7 @@
   <div id="status"></div>
   <table>
     <thead>
-      <tr><th></th><th>受付日時</th><th>店名</th><th>業態</th><th>取扱食品</th><th>個別PDF</th></tr>
+      <tr><th></th><th>受付日時</th><th>店名</th><th>業態</th><th>取扱食品</th><th>個別PDF</th><th></th></tr>
     </thead>
     <tbody id="tbody"></tbody>
   </table>
@@ -73,11 +73,41 @@ async function load() {
         <td>${escapeHtml(r.businessTypeLabel)}</td>
         <td>${escapeHtml(r.foodName)}</td>
         <td>${r.pdfLink ? `<a href="${r.pdfLink}" target="_blank" rel="noopener">開く</a>` : '-'}</td>
+        <td><button class="deleteBtn" data-row="${r.rowNumber}" data-shop="${escapeHtml(r.shopName)}" style="background:#cc1f2d">削除</button></td>
       `;
       tbody.appendChild(tr);
     });
+    tbody.querySelectorAll('.deleteBtn').forEach((btn) => {
+      btn.addEventListener('click', () => deleteRow(btn.dataset.row, btn.dataset.shop));
+    });
   } catch (e) {
     statusEl.textContent = '通信エラー: ' + e.message;
+  }
+}
+
+async function deleteRow(rowNumber, shopName) {
+  if (!confirm(`「${shopName}」を削除しますか？\n個別PDFもDriveから削除されます。この操作は元に戻せません。`)) {
+    return;
+  }
+  const statusEl = document.getElementById('status');
+  statusEl.textContent = '削除中...';
+  document.querySelectorAll('.deleteBtn').forEach((b) => { b.disabled = true; });
+  try {
+    const res = await fetch(`/api/submissions/${rowNumber}`, {
+      method: 'DELETE',
+      headers: { 'x-admin-key': ADMIN_KEY },
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      statusEl.textContent = '削除に失敗しました: ' + (err.error || res.status);
+      document.querySelectorAll('.deleteBtn').forEach((b) => { b.disabled = false; });
+      return;
+    }
+    statusEl.textContent = '';
+    load();
+  } catch (e) {
+    statusEl.textContent = '通信エラー: ' + e.message;
+    document.querySelectorAll('.deleteBtn').forEach((b) => { b.disabled = false; });
   }
 }
 
