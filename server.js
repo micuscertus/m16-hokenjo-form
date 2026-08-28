@@ -40,8 +40,10 @@ const BANNED_INGREDIENT_KEYWORDS = ['牛乳', '生乳', '白米'];
 const VAGUE_COOKING_PHRASES = ['温める', '熱湯を注ぐ', 'あたためる'];
 // 自家調合ドリンク（清涼飲料水製造業の許可が必要になるパターン）
 const SELF_MADE_DRINK_KEYWORDS = ['シロップ', 'コーディアル', '自家製ドリンク', '自家調合', '自家製シロップ'];
+// 生の柑橘をそのままドリンクに使うのは不可（保健所確認済み：市販シロップに置き換える必要がある）
+const RAW_CITRUS_DRINK_KEYWORDS = ['レモン', 'ライム', 'かぼす', 'すだち'];
 // 生のまま提供されやすい／加熱が前提の食材（保健所確認済み：生のまま提供は不可）
-const RAW_OR_HEAT_NEEDED_KEYWORDS = ['きゅうり', 'レタス', 'トマト', 'キャベツ', '水菜', 'パクチー', 'もやし', 'レモン', '生野菜', '生の野菜', '生の果物', '焼きそば', 'そば', 'うどん', 'ラーメン', 'パスタ', '麺', '豚肉', '鶏肉', '牛肉', 'ひき肉', '魚', 'エビ', 'イカ', 'タコ', '卵'];
+const RAW_OR_HEAT_NEEDED_KEYWORDS = ['きゅうり', 'レタス', 'トマト', 'キャベツ', '水菜', 'パクチー', 'もやし', '生野菜', '生の野菜', '生の果物', '焼きそば', 'そば', 'うどん', 'ラーメン', 'パスタ', '麺', '豚肉', '鶏肉', '牛肉', 'ひき肉', '魚', 'エビ', 'イカ', 'タコ', '卵'];
 // 実際に加熱する調理方法（これ以外は「加熱した」と見なさない）
 const HEAT_COOKING_METHODS = ['grill', 'boil', 'steam', 'fry'];
 // 常温保存でも問題ない食品（これに該当しなければ常温は警告対象）
@@ -55,6 +57,22 @@ function containsAny(text, keywords) {
   if (!text) return null;
   const hit = keywords.find((k) => text.includes(k));
   return hit || null;
+}
+
+// 「レモンシロップ」「レモン果汁」等の加工品表記は除外し、生の柑橘そのものの使用だけを拾う
+// texts は個別のフィールドごとの配列で渡すこと（結合してから判定すると、別欄の加工品表記が
+// 生の柑橘の記載を隠してしまう＝「レモンシロップ／カットレモン」のような分割記載をすり抜けさせてしまう）
+function detectRawCitrusInDrink(texts) {
+  const list = Array.isArray(texts) ? texts : [texts];
+  for (const text of list) {
+    if (!text) continue;
+    for (const k of RAW_CITRUS_DRINK_KEYWORDS) {
+      if (text.includes(k) && !text.includes(`${k}シロップ`) && !text.includes(`${k}果汁`)) {
+        return k;
+      }
+    }
+  }
+  return null;
 }
 
 // 取扱食品名に複数品目が書かれていないかの簡易判定（空白・読点・カンマで区切られていたら複数扱い）
@@ -173,12 +191,22 @@ function validateSubmission(d) {
       errors.serveMethodOther = '「その他」を選んだ場合は提供方法を具体的に入力してください。';
     }
 
-    // 自家調合ドリンク（シロップ等を炭酸水・水で割るもの）は清涼飲料水製造業の許可が必要になる
+    // シロップ等を炭酸水・水で割るドリンクは、購入品でも自家製造でも清涼飲料水製造業の許可施設の記入が必要
     if (!errors.ingredients && !errors.cookingMethodOther) {
       const drinkText = [d.foodName, ...(d.ingredients || []), d.cookingMethodOther].filter(Boolean).join(' ');
       const drinkHit = containsAny(drinkText, SELF_MADE_DRINK_KEYWORDS);
       if (drinkHit) {
-        errors.ingredients = `「${drinkHit}」を使う自家調合ドリンクは、清涼飲料水製造業の許可が必要になります。この許可を取っていない場合は、市販品をそのまま小分けにする、または市販のティーバッグ・ドリップバッグで一杯ずつ抽出する方法に変更してください。`;
+        if (isBlank(d.drinkPermitFacilityName) || isBlank(d.drinkPermitFacilityAddress)) {
+          errors.drinkPermitFacility = `「${drinkHit}」を使う場合、清涼飲料水製造業の許可施設の名称と住所を記入してください。`;
+        }
+      }
+    }
+
+    // 生の柑橘（レモン等）をそのままドリンクに使うのは不可。市販シロップに置き換える必要がある
+    if (!errors.ingredients) {
+      const citrusHit = detectRawCitrusInDrink([d.foodName, ...(d.ingredients || []), d.cookingMethodOther]);
+      if (citrusHit) {
+        errors.ingredients = `生の「${citrusHit}」はドリンクにそのまま使用できません。「市販のシロップを炭酸で割る」という形に変更してください。`;
       }
     }
 
@@ -243,7 +271,8 @@ async function aiSemanticCheck(d) {
 - 禁止材料（牛乳・白米）の使用
 - 茹でる調理（大量の水）
 - 購入先の空欄・海外住所
-- 自家調合ドリンク（シロップ・コーディアル系）の清涼飲料水製造業許可の指摘
+- 自家調合ドリンク（シロップ・コーディアル系）の清涼飲料水製造業許可の指摘（drinkPermitFacilityName・drinkPermitFacilityAddressに記入があれば、許可施設の記載要件は既に満たされているので指摘不要）
+- 生のレモン・ライム等をドリンクにそのまま使う点の指摘
 
 指摘してほしいのは、たとえば以下のような機械的チェックをすり抜ける矛盾です:
 - 食品名と調理方法が明らかに矛盾している（例：トーストと書いてあるのに調理方法が「蒸す」）
@@ -469,8 +498,12 @@ async function renderSubmissionPdfBuffer(d, dateText) {
       '{{材料1}}': ingredients[0] || '',
       '{{材料2}}': ingredients[1] || '',
       '{{材料3}}': ingredients[2] || '',
-      '{{購入先名前}}': d.ingredientSourceType === 'selfmade' ? '自社（保健所許可施設で製造）' : d.ingredientSourceName,
-      '{{購入先住所}}': d.ingredientSourceType === 'selfmade' ? '' : d.ingredientSourceAddress,
+      '{{購入先名前}}': !isBlank(d.drinkPermitFacilityName)
+        ? d.drinkPermitFacilityName
+        : d.ingredientSourceType === 'selfmade' ? '自社（保健所許可施設で製造）' : d.ingredientSourceName,
+      '{{購入先住所}}': !isBlank(d.drinkPermitFacilityAddress)
+        ? d.drinkPermitFacilityAddress
+        : d.ingredientSourceType === 'selfmade' ? '' : d.ingredientSourceAddress,
       '{{仕込み内容}}': d.prep === 'onsite' ? d.prepDetail : 'なし',
       '{{調理方法}}': COOKING_METHOD_LABELS[d.cookingMethod] || d.cookingMethodOther || '',
       '{{保存方法}}': STORAGE_LABELS[d.storage] || d.storageOther || '',
