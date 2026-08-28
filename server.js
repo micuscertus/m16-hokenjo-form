@@ -354,7 +354,7 @@ async function sendNotificationMail(d) {
 詳細はスプレッドシートを確認してください。`;
 
   await transporter.sendMail({
-    from: process.env.GMAIL_USER,
+    from: `"目黒マルシェ自動処理" <${process.env.GMAIL_USER}>`,
     to: process.env.ORGANIZER_EMAIL || process.env.GMAIL_USER,
     subject: `【臨時出店届】新規申し込み: ${d.shopName}`,
     text: body,
@@ -436,6 +436,38 @@ app.post('/api/submit', async (req, res) => {
     console.error('Submit error:', error);
     res.status(500).json({ ok: false, error: error.message || '送信処理に失敗しました。' });
   }
+});
+
+// ===== デバッグ用：SMTPポートの疎通確認（診断が終わったら削除する） =====
+app.get('/api/debug-net', async (req, res) => {
+  const net = require('net');
+  const targets = [
+    { host: 'smtp.gmail.com', port: 465 },
+    { host: 'smtp.gmail.com', port: 587 },
+    { host: 'meguromarche.com', port: 465 },
+    { host: 'google.com', port: 443 },
+  ];
+  const results = {};
+  await Promise.all(targets.map((t) => new Promise((resolve) => {
+    const start = Date.now();
+    const socket = net.createConnection({ host: t.host, port: t.port, timeout: 8000 });
+    const key = `${t.host}:${t.port}`;
+    socket.on('connect', () => {
+      results[key] = `OK (${Date.now() - start}ms)`;
+      socket.destroy();
+      resolve();
+    });
+    socket.on('timeout', () => {
+      results[key] = `TIMEOUT (${Date.now() - start}ms)`;
+      socket.destroy();
+      resolve();
+    });
+    socket.on('error', (e) => {
+      results[key] = `ERROR: ${e.message} (${Date.now() - start}ms)`;
+      resolve();
+    });
+  })));
+  res.json(results);
 });
 
 app.get('*', (req, res) => {
