@@ -14,8 +14,17 @@ if (fs.existsSync(envPath)) {
 }
 
 const express = require('express');
+const { Readable } = require('stream');
 const Anthropic = require('@anthropic-ai/sdk');
 const { google } = require('googleapis');
+
+// フォームの内部コードをPDF・表示用の日本語ラベルに変換する対応表
+const COOKING_METHOD_LABELS = {
+  grill: '焼く', boil: '煮る', steam: '蒸す', fry: '揚げる',
+  season: '味付けする', pour: 'カップに注ぐ', plate: 'よそう（盛り付ける）',
+};
+const STORAGE_LABELS = { normal: '常温', cold: '冷蔵（クーラーBOX等）', frozen: '冷凍' };
+const SERVE_METHOD_LABELS = { disposable: '使い捨て容器にて提供', cup: '使い捨てカップにて提供' };
 
 const app = express();
 app.use(express.json());
@@ -280,7 +289,7 @@ async function aiSemanticCheck(d) {
 }
 
 // ===== Google Sheets 書き込み =====
-async function writeToSheet(d) {
+async function writeToSheet(d, pdfLink) {
   if (!process.env.GOOGLE_CREDENTIALS_JSON) {
     console.log('GOOGLE_CREDENTIALS_JSON未設定 - スプレッドシート書き込みスキップ');
     return;
@@ -304,26 +313,99 @@ async function writeToSheet(d) {
     d.address,
     d.businessType === 'restaurant' ? '飲食店' : '食品物販',
     d.foodName,
+    pdfLink || '',
     JSON.stringify(d),
   ];
 
   await sheets.spreadsheets.values.append({
     spreadsheetId,
-    range: `${sheetName}!A:H`,
+    range: `${sheetName}!A:I`,
     valueInputOption: 'USER_ENTERED',
     requestBody: { values: [row] },
   });
 }
 
-// ===== メール送信（Gmail APIをHTTPS経由で使用。SMTPポートがホスティング環境で塞がれているため） =====
-// t@meguromarche.comはGmail側でSend As検証済みのため、Fromに指定して送信できる
-function getGmailClient() {
+// ===== Gmail送信・PDF生成で共有するOAuth2クライアント =====
+// (documents / drive / gmail.send スコープを持つ、micuscertus@gmail.comのトークン)
+function getOAuth2Client() {
   if (!process.env.GMAIL_CLIENT_ID || !process.env.GMAIL_CLIENT_SECRET || !process.env.GMAIL_REFRESH_TOKEN) {
     return null;
   }
   const oAuth2Client = new google.auth.OAuth2(process.env.GMAIL_CLIENT_ID, process.env.GMAIL_CLIENT_SECRET);
   oAuth2Client.setCredentials({ refresh_token: process.env.GMAIL_REFRESH_TOKEN });
-  return google.gmail({ version: 'v1', auth: oAuth2Client });
+  return oAuth2Client;
+}
+
+function getGmailClient() {
+  const auth = getOAuth2Client();
+  return auth ? google.gmail({ version: 'v1', auth }) : null;
+}
+
+// ===== 臨時出店届PDFの生成（テンプレートを複製→差し込み→PDF書き出し） =====
+async function generateSubmissionPdf(d) {
+  const auth = getOAuth2Client();
+  if (!auth || !process.env.PDF_TEMPLATE_ID || d.businessType !== 'restaurant') {
+    return null;
+  }
+
+  const docs = google.docs({ version: 'v1', auth });
+  const drive = google.drive({ version: 'v3', auth });
+
+  const copyRes = await drive.files.copy({
+    fileId: process.env.PDF_TEMPLATE_ID,
+    requestBody: {
+      name: `臨時出店届_${d.shopName}`,
+      parents: process.env.PDF_FOLDER_ID ? [process.env.PDF_FOLDER_ID] : undefined,
+    },
+  });
+  const documentId = copyRes.data.id;
+
+  const ingredients = d.ingredients || [];
+  const replacements = {
+    '{{住所}}': d.address,
+    '{{氏名}}': `${d.shopName} ${d.personName}`,
+    '{{電話番号}}': d.phone,
+    '{{取扱食品}}': d.foodName,
+    '{{提供数}}': d.servingCount,
+    '{{材料1}}': ingredients[0] || '',
+    '{{材料2}}': ingredients[1] || '',
+    '{{材料3}}': ingredients[2] || '',
+    '{{購入先名前}}': d.ingredientSourceType === 'selfmade' ? d.facilityName : d.ingredientSourceName,
+    '{{購入先住所}}': d.ingredientSourceType === 'selfmade' ? d.facilityAddress : d.ingredientSourceAddress,
+    '{{仕込み内容}}': d.prep === 'onsite' ? d.prepDetail : 'なし',
+    '{{調理方法}}': COOKING_METHOD_LABELS[d.cookingMethod] || d.cookingMethodOther || '',
+    '{{保存方法}}': STORAGE_LABELS[d.storage] || d.storageOther || '',
+    '{{提供方法}}': (d.serveMethod || []).map((m) => SERVE_METHOD_LABELS[m] || d.serveMethodOther).join('、'),
+    '{{累計出店日数}}': d.cumulativeDays,
+  };
+
+  await docs.documents.batchUpdate({
+    documentId,
+    requestBody: {
+      requests: Object.entries(replacements).map(([placeholder, value]) => ({
+        replaceAllText: { containsText: { text: placeholder, matchCase: true }, replaceText: value || '' },
+      })),
+    },
+  });
+
+  const exportRes = await drive.files.export(
+    { fileId: documentId, mimeType: 'application/pdf' },
+    { responseType: 'arraybuffer' }
+  );
+
+  const pdfName = `臨時出店届_${d.shopName}.pdf`;
+  const pdfRes = await drive.files.create({
+    requestBody: {
+      name: pdfName,
+      parents: process.env.PDF_FOLDER_ID ? [process.env.PDF_FOLDER_ID] : undefined,
+    },
+    media: { mimeType: 'application/pdf', body: Readable.from(Buffer.from(exportRes.data)) },
+    fields: 'id, webViewLink',
+  });
+
+  await drive.files.delete({ fileId: documentId });
+
+  return pdfRes.data.webViewLink;
 }
 
 function encodeHeaderWord(text) {
@@ -433,20 +515,28 @@ app.post('/api/submit', async (req, res) => {
       return res.status(422).json({ ok: false, fieldErrors: aiErrors, stage: 'semantic' });
     }
 
-    // 3. Sheets書き込み
-    try {
-      await writeToSheet(d);
-    } catch (sheetError) {
-      console.error('スプレッドシート書き込みエラー:', sheetError.message);
-    }
+    // 3〜5. PDF生成→Sheets書き込み→メール送信（応答をブロックしないよう待たない。PDFのリンクをシートに残すためこの順で行う）
+    (async () => {
+      let pdfLink = null;
+      try {
+        pdfLink = await generateSubmissionPdf(d);
+      } catch (pdfError) {
+        console.error('PDF生成エラー:', pdfError.message);
+      }
 
-    // 4. 主催者への通知メール・出店者への受付完了メール（応答をブロックしないよう待たない）
-    sendNotificationMail(d).catch((mailError) => {
-      console.error('通知メール送信エラー:', mailError.message);
-    });
-    sendConfirmationMail(d).catch((mailError) => {
-      console.error('受付完了メール送信エラー:', mailError.message);
-    });
+      try {
+        await writeToSheet(d, pdfLink);
+      } catch (sheetError) {
+        console.error('スプレッドシート書き込みエラー:', sheetError.message);
+      }
+
+      sendNotificationMail(d).catch((mailError) => {
+        console.error('通知メール送信エラー:', mailError.message);
+      });
+      sendConfirmationMail(d).catch((mailError) => {
+        console.error('受付完了メール送信エラー:', mailError.message);
+      });
+    })();
 
     res.json({ ok: true });
   } catch (error) {
