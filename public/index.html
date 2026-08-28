@@ -615,31 +615,70 @@
   const SELF_MADE_DRINK_KEYWORDS = ['シロップ', 'コーディアル', '自家製ドリンク', '自家調合', '自家製シロップ'];
   const RAW_CITRUS_DRINK_KEYWORDS = ['レモン', 'ライム', 'かぼす', 'すだち'];
   const SELF_MADE_SYRUP_KEYWORDS = ['自家製シロップ', '自家調合', '自家製ドリンク', 'コーディアル'];
-  const VAGUE_COOKING_PHRASES = ['温める', '熱湯を注ぐ', 'あたためる'];
+  const VAGUE_COOKING_PHRASES = ['熱湯を注ぐ'];
+  // 語幹だけだと「常温めんつゆ」のような無関係な語に誤爆するため、活用語尾込みの正規表現で持つ
+  const WEAK_HEAT_REGEX = /(温め|あたため)(る|て|た|ます|ない)/;
   const RAW_OR_HEAT_NEEDED_KEYWORDS = ['きゅうり', 'レタス', 'トマト', 'キャベツ', '水菜', 'パクチー', 'もやし', '生野菜', '生の野菜', '生の果物', '焼きそば', 'そば', 'うどん', 'ラーメン', 'パスタ', '麺', '豚肉', '鶏肉', '牛肉', 'ひき肉', '魚', 'エビ', 'イカ', 'タコ', '卵'];
+  const HAM_CHEESE_KEYWORDS = ['ハム', 'チーズ'];
+  // 「お茶」は「お茶漬け」等に部分一致してしまうため含めない
+  const TEA_COFFEE_KEYWORDS = ['コーヒー', '珈琲', '紅茶'];
+  const SINGLE_SERVE_BAG_KEYWORDS = ['ティーバッグ', 'ドリップバッグ'];
+  const CREPE_KEYWORD = 'クレープ';
+
+  function detectWeakHeatWord(text) {
+    if (!text) return null;
+    const m = text.match(WEAK_HEAT_REGEX);
+    return m ? m[0] : null;
+  }
 
   function detectCitrusIssue(texts) {
     const list = Array.isArray(texts) ? texts : [texts];
-    const joined = list.filter(Boolean).join(' ');
-    const isSelfMade = joined.includes('自家製') || containsAny(joined, SELF_MADE_SYRUP_KEYWORDS);
     for (const text of list) {
       if (!text) continue;
       for (const k of RAW_CITRUS_DRINK_KEYWORDS) {
         if (!text.includes(k)) continue;
         const isProcessed = text.includes(`${k}シロップ`) || text.includes(`${k}果汁`);
         if (!isProcessed) return { type: 'raw', fruit: k };
+        // 同一フィールド内の共起で見る（別欄の無関係な「自家製」に誤爆しないため）
+        const isSelfMade = text.includes('自家製') || containsAny(text, SELF_MADE_SYRUP_KEYWORDS);
         if (isSelfMade) return { type: 'selfmade_syrup', fruit: k };
       }
     }
     return null;
   }
 
-  function detectHomeBrewedCoffee(foodName, ing1, ing2, ing3, cookingMethod, cookingOther) {
+  // 「自家製」と「シロップ」が近接している場合のみヒットさせる（読点等を挟んで無関係な物同士が
+  // 同一フィールド内で共起するケースの誤爆を防ぐ）。SELF_MADE_SYRUP_KEYWORDSは使わない
+  // （'自家調合のタレ'等、シロップと無関係な文脈にも単独一致してしまうため）
+  const SELF_MADE_SYRUP_REGEX = /自家製[^。、\s]{0,15}シロップ/;
+  function detectGeneralSelfMadeSyrup(texts) {
+    const list = Array.isArray(texts) ? texts : [texts];
+    return list.some((text) => text && SELF_MADE_SYRUP_REGEX.test(text));
+  }
+
+  function detectBulkBrewedDrink(foodName, ing1, ing2, ing3, cookingMethod, cookingOther) {
     const text = [foodName, ing1, ing2, ing3, cookingOther].filter(Boolean).join(' ');
-    const isCoffee = text.includes('コーヒー') || text.includes('珈琲');
-    const hasDripBag = text.includes('ドリップバッグ');
+    const isTeaOrCoffee = containsAny(text, TEA_COFFEE_KEYWORDS);
+    const hasSingleServeBag = containsAny(text, SINGLE_SERVE_BAG_KEYWORDS);
     const brewingMethod = cookingMethod === 'other' || cookingMethod === 'pour';
-    return isCoffee && !hasDripBag && brewingMethod;
+    return Boolean(isTeaOrCoffee) && !hasSingleServeBag && brewingMethod;
+  }
+
+  function detectHamCheese(texts) {
+    return containsAny([].concat(texts).filter(Boolean).join(' '), HAM_CHEESE_KEYWORDS);
+  }
+  function detectVagueFillingWord(texts) {
+    return [].concat(texts).filter(Boolean).join(' ').includes('具材');
+  }
+  function detectNonPlantWhipCream(texts) {
+    const joined = [].concat(texts).filter(Boolean).join(' ');
+    return joined.includes('ホイップクリーム') && !joined.includes('植物性');
+  }
+  function weakHeatWordMessage(hasCrepe) {
+    if (hasCrepe) {
+      return 'クレープは許可が取りにくいです。「現地でクレープを焼き、具材を挟んで提供する」と記載してください。';
+    }
+    return '「温める」という言葉は使えません。加熱、煮る、焼く、蒸すなどの強く火が通る滅菌できる言葉を使ってください。';
   }
   const HEAT_COOKING_METHODS = ['grill', 'boil', 'steam', 'fry'];
   const DRY_SAFE_KEYWORDS = ['乾麺', '乾き物', '乾物', 'せんべい', 'クッキー', 'ビスケット', '飴', 'キャンディ', 'ポップコーン', 'スナック', 'ドライフルーツ', '焼き菓子', '駄菓子', 'チップス', 'ナッツ'];
@@ -668,22 +707,42 @@
       setError('foodName', '取扱食品名は1品のみ記載してください。複数書くと許可が通りません。');
       return;
     }
+    const hamCheeseInName = detectHamCheese(foodName);
+    if (hamCheeseInName) {
+      setError('foodName', `食品名に「${hamCheeseInName}」は使用できません。名称を変更してください。`);
+      return;
+    }
     setError('foodName', null);
   }
 
   function checkIngredientsLive() {
     const { foodName, ing1, ing2, ing3 } = getFoodNameAndIngredients();
     const cookingOther = document.getElementById('cookingMethodOther')?.value.trim() || '';
+    const prepDetail = document.getElementById('prepDetail')?.value.trim() || '';
     const cookingMethod = document.querySelector('input[name="cookingMethod"]:checked')?.value || null;
     const fields = [foodName, ing1, ing2, ing3, cookingOther];
 
+    const ingList = [ing1, ing2, ing3];
+    // ingredients欄だけでなく、その他欄・仕込み内容にハム/チーズ等が書かれるケースも拾う
+    const extendedFields = [...ingList, cookingOther, prepDetail];
     let ingredientsError = null;
     let citrusIssue = null;
-    for (const ing of [ing1, ing2, ing3]) {
+    for (const ing of ingList) {
       const banned = containsAny(ing, BANNED_INGREDIENT_KEYWORDS);
       if (banned) {
         ingredientsError = `「${banned}」は臨時出店では使用できません。オーツミルク・豆乳など代替品に変更してください。`;
         break;
+      }
+    }
+
+    if (!ingredientsError) {
+      const hamCheeseInIngredients = detectHamCheese(extendedFields);
+      if (hamCheeseInIngredients) {
+        ingredientsError = `「${hamCheeseInIngredients}」は許可が通らないことが多いです。他の食材に変更してください。`;
+      } else if (detectVagueFillingWord(extendedFields)) {
+        ingredientsError = '「具材」だけだと許可が通らないことが多いため、具体的な食材を2つほど記載してください。';
+      } else if (detectNonPlantWhipCream(extendedFields)) {
+        ingredientsError = '「ホイップクリーム」を使う場合は、許可をもらうため植物性ホイップクリームと記載してください。';
       }
     }
 
@@ -696,15 +755,19 @@
       }
     }
 
+    if (!ingredientsError && detectGeneralSelfMadeSyrup(fields)) {
+      ingredientsError = '自家製シロップは通らないことが多いので、市販のシロップと記載お願いします。';
+    }
+
     // cookingMethod='other'の場合はcheckCookingMethodLive()側でcookingMethodOtherフィールドに出すので、ここでは扱わない
-    if (!ingredientsError && cookingMethod !== 'other' && detectHomeBrewedCoffee(foodName, ing1, ing2, ing3, cookingMethod, cookingOther)) {
-      ingredientsError = 'コーヒーを豆から挽いて淹れる形では許可が通りません。調理方法は「市販のドリップバッグで一杯ずつ抽出する」に変更し、購入先には市販のドリップバッグの購入先を記入してください。';
+    if (!ingredientsError && cookingMethod !== 'other' && detectBulkBrewedDrink(foodName, ing1, ing2, ing3, cookingMethod, cookingOther)) {
+      ingredientsError = 'コーヒー・紅茶等をまとめて作り置きすることは許可が通りません。市販のティーバッグ・ドリップバッグで一杯ずつ抽出すると記載してください。';
     }
 
     setError('ingredients', ingredientsError);
 
     const drinkText = fields.filter(Boolean).join(' ');
-    const drinkHit = !citrusIssue && containsAny(drinkText, SELF_MADE_DRINK_KEYWORDS);
+    const drinkHit = !ingredientsError && containsAny(drinkText, SELF_MADE_DRINK_KEYWORDS);
     document.getElementById('drinkPermitFacilitySub')?.classList.toggle('hidden', !drinkHit);
     if (!drinkHit) {
       setError('drinkPermitFacility', null);
@@ -735,7 +798,7 @@
       const rawText = [foodName, ing1, ing2, ing3].filter(Boolean).join(' ');
       const rawHit = containsAny(rawText, RAW_OR_HEAT_NEEDED_KEYWORDS);
       if (rawHit && !HEAT_COOKING_METHODS.includes(selected)) {
-        setError('cookingMethod', `「${rawHit}」は加熱調理が必要な食材の可能性があります。保健所の確認では生のまま提供することはできません。調理方法で「焼く」「煮る」「蒸す」「揚げる」のいずれかを選んでください。`);
+        setError('cookingMethod', `「${rawHit}」の使用は許可が通らないことが多いです。焼くことを記載するか、記載から省いてください。`);
         return;
       }
     }
@@ -744,9 +807,15 @@
     if (selected === 'other') {
       const other = document.getElementById('cookingMethodOther')?.value.trim() || '';
       const { foodName, ing1, ing2, ing3 } = getFoodNameAndIngredients();
-      if (other && detectHomeBrewedCoffee(foodName, ing1, ing2, ing3, selected, other)) {
+      if (other && detectWeakHeatWord(other)) {
+        // 「温め」系の言葉は曖昧チェックにも該当するが、こちらの方が具体的なので優先する
+        const hasCrepe = [foodName, ing1, ing2, ing3, other].filter(Boolean).join(' ').includes(CREPE_KEYWORD);
+        setError('cookingMethodOther', weakHeatWordMessage(hasCrepe));
+        return;
+      }
+      if (other && detectBulkBrewedDrink(foodName, ing1, ing2, ing3, selected, other)) {
         // 実際の指摘文言「粉を入れて熱湯を注ぐ」等は曖昧チェックにも該当する短さのため、より具体的なこちらを優先する
-        setError('cookingMethodOther', 'コーヒーを豆から挽いて淹れる形では許可が通りません。「市販のドリップバッグで一杯ずつ抽出する」に変更し、購入先には市販のドリップバッグの購入先を記入してください。');
+        setError('cookingMethodOther', 'コーヒー・紅茶等をまとめて作り置きすることは許可が通りません。市販のティーバッグ・ドリップバッグで一杯ずつ抽出すると記載してください。');
         return;
       }
       const vague = containsAny(other, VAGUE_COOKING_PHRASES);
@@ -773,6 +842,22 @@
     setError('storage', null);
   }
 
+  function checkPrepDetailLive() {
+    const detail = document.getElementById('prepDetail')?.value.trim() || '';
+    if (!detail) {
+      setError('prepDetail', null);
+      return;
+    }
+    const weakHeat = detectWeakHeatWord(detail);
+    if (weakHeat) {
+      const { foodName, ing1, ing2, ing3 } = getFoodNameAndIngredients();
+      const hasCrepe = [foodName, ing1, ing2, ing3, detail].filter(Boolean).join(' ').includes(CREPE_KEYWORD);
+      setError('prepDetail', weakHeatWordMessage(hasCrepe));
+      return;
+    }
+    setError('prepDetail', null);
+  }
+
   ['ingredient1', 'ingredient2', 'ingredient3', 'foodName', 'cookingMethodOther'].forEach((id) => {
     document.getElementById(id)?.addEventListener('input', () => {
       checkFoodNameLive();
@@ -781,6 +866,7 @@
       checkStorageLive();
     });
   });
+  document.getElementById('prepDetail')?.addEventListener('input', checkPrepDetailLive);
   ['drinkPermitFacilityName', 'drinkPermitFacilityAddress'].forEach((id) => {
     document.getElementById(id)?.addEventListener('input', () => {
       const drinkText = [document.getElementById('foodName')?.value, document.getElementById('ingredient1')?.value, document.getElementById('ingredient2')?.value, document.getElementById('ingredient3')?.value, document.getElementById('cookingMethodOther')?.value].filter(Boolean).join(' ');
