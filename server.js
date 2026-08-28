@@ -340,7 +340,7 @@ function getGmailClient() {
 // ===== 臨時出店届PDFの生成（テンプレートを複製→差し込み→PDF書き出し） =====
 async function generateSubmissionPdf(d) {
   const auth = getOAuth2Client();
-  if (!auth || !process.env.PDF_TEMPLATE_ID || d.businessType !== 'restaurant') {
+  if (!auth || !process.env.PDF_TEMPLATE_ID) {
     return null;
   }
 
@@ -356,24 +356,51 @@ async function generateSubmissionPdf(d) {
   });
   const documentId = copyRes.data.id;
 
+  const isRestaurant = d.businessType === 'restaurant';
   const ingredients = d.ingredients || [];
   const replacements = {
     '{{住所}}': d.address,
-    '{{氏名}}': `${d.shopName} ${d.personName}`,
+    '{{店名}}': d.shopName,
+    '{{氏名}}': d.personName,
     '{{電話番号}}': d.phone,
     '{{取扱食品}}': d.foodName,
-    '{{提供数}}': d.servingCount,
-    '{{材料1}}': ingredients[0] || '',
-    '{{材料2}}': ingredients[1] || '',
-    '{{材料3}}': ingredients[2] || '',
-    '{{購入先名前}}': d.ingredientSourceType === 'selfmade' ? '自社（保健所許可施設で製造）' : d.ingredientSourceName,
-    '{{購入先住所}}': d.ingredientSourceType === 'selfmade' ? '' : d.ingredientSourceAddress,
-    '{{仕込み内容}}': d.prep === 'onsite' ? d.prepDetail : 'なし',
-    '{{調理方法}}': COOKING_METHOD_LABELS[d.cookingMethod] || d.cookingMethodOther || '',
-    '{{保存方法}}': STORAGE_LABELS[d.storage] || d.storageOther || '',
-    '{{提供方法}}': (d.serveMethod || []).map((m) => SERVE_METHOD_LABELS[m] || d.serveMethodOther).join('、'),
+    '{{提供数}}': isRestaurant ? d.servingCount : '',
     '{{累計出店日数}}': d.cumulativeDays,
   };
+
+  if (isRestaurant) {
+    Object.assign(replacements, {
+      '{{材料1}}': ingredients[0] || '',
+      '{{材料2}}': ingredients[1] || '',
+      '{{材料3}}': ingredients[2] || '',
+      '{{購入先名前}}': d.ingredientSourceType === 'selfmade' ? '自社（保健所許可施設で製造）' : d.ingredientSourceName,
+      '{{購入先住所}}': d.ingredientSourceType === 'selfmade' ? '' : d.ingredientSourceAddress,
+      '{{仕込み内容}}': d.prep === 'onsite' ? d.prepDetail : 'なし',
+      '{{調理方法}}': COOKING_METHOD_LABELS[d.cookingMethod] || d.cookingMethodOther || '',
+      '{{保存方法}}': STORAGE_LABELS[d.storage] || d.storageOther || '',
+      '{{提供方法}}': (d.serveMethod || []).map((m) => SERVE_METHOD_LABELS[m] || d.serveMethodOther).join('、'),
+      '{{物販仕入先名前}}': '',
+      '{{物販仕入先住所}}': '',
+      '{{物販販売方法}}': '',
+      '{{物販保存方法}}': '',
+    });
+  } else {
+    Object.assign(replacements, {
+      '{{材料1}}': '',
+      '{{材料2}}': '',
+      '{{材料3}}': '',
+      '{{購入先名前}}': '',
+      '{{購入先住所}}': '',
+      '{{仕込み内容}}': '',
+      '{{調理方法}}': '',
+      '{{保存方法}}': '',
+      '{{提供方法}}': '',
+      '{{物販仕入先名前}}': d.selfMade === 'yes' ? d.facilityName : d.supplierName,
+      '{{物販仕入先住所}}': d.selfMade === 'yes' ? d.facilityAddress : d.supplierAddress,
+      '{{物販販売方法}}': d.packagingConfirmed ? '☑ 包装済み完成品を販売する(表示ラベルあり)' : '□ 包装済み完成品を販売する(表示ラベルあり)',
+      '{{物販保存方法}}': STORAGE_LABELS[d.storage] || d.storageOther || '',
+    });
+  }
 
   await docs.documents.batchUpdate({
     documentId,
