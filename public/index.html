@@ -381,14 +381,6 @@
             </div>
           </div>
 
-          <div class="sub-field hidden" id="ingredientSelfmadeSub">
-            <div class="field" data-field="facility">
-              <label>製造許可施設の名称・住所</label>
-              <input type="text" id="facilityNameRest" placeholder="施設名" style="margin-bottom:8px">
-              <input type="text" id="facilityAddressRest" placeholder="施設住所">
-              <div class="field-error"></div>
-            </div>
-          </div>
         </div>
 
         <div class="field" data-field="prep">
@@ -737,7 +729,6 @@
     el.addEventListener('change', () => {
       const v = document.querySelector('input[name="ingredientSourceType"]:checked')?.value;
       document.getElementById('ingredientPurchaseSub').classList.toggle('hidden', v !== 'purchase');
-      document.getElementById('ingredientSelfmadeSub').classList.toggle('hidden', v !== 'selfmade');
     });
   });
 
@@ -832,8 +823,6 @@
       d.ingredientSourceType = document.querySelector('input[name="ingredientSourceType"]:checked')?.value || null;
       d.ingredientSourceName = document.getElementById('ingredientSourceName').value.trim();
       d.ingredientSourceAddress = document.getElementById('ingredientSourceAddress').value.trim();
-      d.facilityName = document.getElementById('facilityNameRest').value.trim();
-      d.facilityAddress = document.getElementById('facilityAddressRest').value.trim();
       d.prep = document.querySelector('input[name="prep"]:checked')?.value || null;
       d.prepFacilityName = document.getElementById('prepFacilityName').value.trim();
       d.prepFacilityAddress = document.getElementById('prepFacilityAddress').value.trim();

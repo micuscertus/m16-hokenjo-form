@@ -128,10 +128,6 @@ function validateSubmission(d) {
           errors.ingredientSourceAddress = `購入先住所に「${overseas}」が含まれています。国内の仕入れ先の名前・住所を記載してください。`;
         }
       }
-    } else if (d.ingredientSourceType === 'selfmade') {
-      if (isBlank(d.facilityName) || isBlank(d.facilityAddress)) {
-        errors.facility = '自家製造の場合、保健所許可のある製造施設の名称と住所を両方入力してください。';
-      }
     }
 
     if (d.prep !== 'onsite' && d.prep !== 'none') {
@@ -370,8 +366,8 @@ async function generateSubmissionPdf(d) {
     '{{材料1}}': ingredients[0] || '',
     '{{材料2}}': ingredients[1] || '',
     '{{材料3}}': ingredients[2] || '',
-    '{{購入先名前}}': d.ingredientSourceType === 'selfmade' ? d.facilityName : d.ingredientSourceName,
-    '{{購入先住所}}': d.ingredientSourceType === 'selfmade' ? d.facilityAddress : d.ingredientSourceAddress,
+    '{{購入先名前}}': d.ingredientSourceType === 'selfmade' ? '自社（保健所許可施設で製造）' : d.ingredientSourceName,
+    '{{購入先住所}}': d.ingredientSourceType === 'selfmade' ? '' : d.ingredientSourceAddress,
     '{{仕込み内容}}': d.prep === 'onsite' ? d.prepDetail : 'なし',
     '{{調理方法}}': COOKING_METHOD_LABELS[d.cookingMethod] || d.cookingMethodOther || '',
     '{{保存方法}}': STORAGE_LABELS[d.storage] || d.storageOther || '',
