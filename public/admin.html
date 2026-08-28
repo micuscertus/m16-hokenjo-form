@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>申し込み一覧・PDFまとめ</title>
+<style>
+  body { font-family: -apple-system, "Hiragino Sans", sans-serif; margin: 24px; color: #16215c; }
+  h2 { margin-bottom: 8px; }
+  #gate { max-width: 320px; margin: 100px auto; text-align: center; }
+  #gate input { padding: 8px; width: 100%; box-sizing: border-box; margin-bottom: 8px; }
+  button { background: #16215c; color: #fff; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer; font-size: 14px; }
+  button:hover { background: #0d1640; }
+  table { border-collapse: collapse; width: 100%; margin-top: 16px; }
+  th, td { border: 1px solid #ccc; padding: 6px 8px; font-size: 13px; text-align: left; }
+  th { background: #eceef7; }
+  .toolbar { margin: 12px 0; display: flex; gap: 8px; }
+  #status { color: #cc1f2d; margin-top: 8px; }
+</style>
+</head>
+<body>
+
+<div id="gate">
+  <p>管理用キーを入力してください</p>
+  <input type="password" id="keyInput" placeholder="ADMIN_KEY">
+  <button onclick="unlock()">入る</button>
+</div>
+
+<div id="main" style="display:none">
+  <h2>申し込み一覧</h2>
+  <div class="toolbar">
+    <button onclick="toggleAll()">全選択・解除</button>
+    <button onclick="downloadMerged()">選択した分をまとめてダウンロード（今日の日付を入れる）</button>
+    <button onclick="load()">再読み込み</button>
+  </div>
+  <div id="status"></div>
+  <table>
+    <thead>
+      <tr><th></th><th>受付日時</th><th>店名</th><th>業態</th><th>取扱食品</th><th>個別PDF</th></tr>
+    </thead>
+    <tbody id="tbody"></tbody>
+  </table>
+</div>
+
+<script>
+let ADMIN_KEY = '';
+
+function unlock() {
+  ADMIN_KEY = document.getElementById('keyInput').value;
+  load();
+}
+
+async function load() {
+  const statusEl = document.getElementById('status');
+  statusEl.textContent = '';
+  try {
+    const res = await fetch('/api/submissions', { headers: { 'x-admin-key': ADMIN_KEY } });
+    if (!res.ok) {
+      statusEl.textContent = 'キーが違う、または読み込みに失敗しました。';
+      return;
+    }
+    const data = await res.json();
+    document.getElementById('gate').style.display = 'none';
+    document.getElementById('main').style.display = 'block';
+    const tbody = document.getElementById('tbody');
+    tbody.innerHTML = '';
+    data.rows.slice().reverse().forEach((r) => {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td><input type="checkbox" class="rowCheck" value="${r.rowNumber}"></td>
+        <td>${escapeHtml(r.timestamp)}</td>
+        <td>${escapeHtml(r.shopName)}</td>
+        <td>${escapeHtml(r.businessTypeLabel)}</td>
+        <td>${escapeHtml(r.foodName)}</td>
+        <td>${r.pdfLink ? `<a href="${r.pdfLink}" target="_blank" rel="noopener">開く</a>` : '-'}</td>
+      `;
+      tbody.appendChild(tr);
+    });
+  } catch (e) {
+    statusEl.textContent = '通信エラー: ' + e.message;
+  }
+}
+
+function escapeHtml(s) {
+  return String(s || '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+function toggleAll() {
+  const boxes = document.querySelectorAll('.rowCheck');
+  const allChecked = Array.from(boxes).every((b) => b.checked);
+  boxes.forEach((b) => { b.checked = !allChecked; });
+}
+
+async function downloadMerged() {
+  const statusEl = document.getElementById('status');
+  const rowNumbers = Array.from(document.querySelectorAll('.rowCheck:checked')).map((b) => Number(b.value));
+  if (rowNumbers.length === 0) {
+    statusEl.textContent = '申し込みを1件以上選んでください。';
+    return;
+  }
+  statusEl.textContent = '作成中...';
+  try {
+    const res = await fetch('/api/download-merged', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-admin-key': ADMIN_KEY },
+      body: JSON.stringify({ rowNumbers }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      statusEl.textContent = 'ダウンロードに失敗しました: ' + (err.error || res.status);
+      return;
+    }
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = '臨時出店届_まとめ.pdf';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    statusEl.textContent = '';
+  } catch (e) {
+    statusEl.textContent = '通信エラー: ' + e.message;
+  }
+}
+</script>
+</body>
+</html>

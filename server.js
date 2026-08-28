@@ -321,6 +321,45 @@ async function writeToSheet(d, pdfLink) {
   });
 }
 
+// ===== Google Sheets 読み込み（申し込み一覧・まとめダウンロード用） =====
+async function readSubmissionRows() {
+  if (!process.env.GOOGLE_CREDENTIALS_JSON) return [];
+
+  const credentials = JSON.parse(process.env.GOOGLE_CREDENTIALS_JSON);
+  const auth = new google.auth.GoogleAuth({
+    credentials,
+    scopes: ['https://www.googleapis.com/auth/spreadsheets'],
+  });
+
+  const sheets = google.sheets({ version: 'v4', auth });
+  const spreadsheetId = process.env.SPREADSHEET_ID;
+  const sheetName = process.env.SHEET_NAME || '臨時出店フォーム受付';
+
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId,
+    range: `${sheetName}!A2:I`,
+  });
+
+  const rows = res.data.values || [];
+  return rows.map((row, i) => ({
+    rowNumber: i + 2,
+    timestamp: row[0] || '',
+    shopName: row[1] || '',
+    businessTypeLabel: row[5] || '',
+    foodName: row[6] || '',
+    pdfLink: row[7] || '',
+    dataJson: row[8] || '',
+  }));
+}
+
+function requireAdminKey(req, res, next) {
+  const key = req.headers['x-admin-key'];
+  if (!process.env.ADMIN_KEY || key !== process.env.ADMIN_KEY) {
+    return res.status(401).json({ ok: false, error: '管理用キーが違います。' });
+  }
+  next();
+}
+
 // ===== Gmail送信・PDF生成で共有するOAuth2クライアント =====
 // (documents / drive / gmail.send スコープを持つ、micuscertus@gmail.comのトークン)
 function getOAuth2Client() {
@@ -337,8 +376,13 @@ function getGmailClient() {
   return auth ? google.gmail({ version: 'v1', auth }) : null;
 }
 
-// ===== 臨時出店届PDFの生成（テンプレートを複製→差し込み→PDF書き出し） =====
-async function generateSubmissionPdf(d) {
+function formatJapaneseDate(date) {
+  return `${date.getFullYear()}年${date.getMonth() + 1}月${date.getDate()}日`;
+}
+
+// ===== 臨時出店届PDFの生成（テンプレートを複製→差し込み→PDF書き出し、Bufferを返す） =====
+// dateText: {{提出日}}{{確認日}}に入れる文字列。個別送信時は空欄、まとめダウンロード時はその日の日付。
+async function renderSubmissionPdfBuffer(d, dateText) {
   const auth = getOAuth2Client();
   if (!auth || !process.env.PDF_TEMPLATE_ID) {
     return null;
@@ -366,6 +410,8 @@ async function generateSubmissionPdf(d) {
     '{{取扱食品}}': d.foodName,
     '{{提供数}}': isRestaurant ? d.servingCount : '',
     '{{累計出店日数}}': d.cumulativeDays,
+    '{{提出日}}': dateText || '',
+    '{{確認日}}': dateText || '',
   };
 
   if (isRestaurant) {
@@ -416,17 +462,26 @@ async function generateSubmissionPdf(d) {
     { responseType: 'arraybuffer' }
   );
 
-  const pdfName = `臨時出店届_${d.shopName}.pdf`;
+  await drive.files.delete({ fileId: documentId });
+
+  return Buffer.from(exportRes.data);
+}
+
+// ===== 個別送信時のPDF生成（日付は空欄のまま、Driveに保存してリンクを返す） =====
+async function generateSubmissionPdf(d) {
+  const buffer = await renderSubmissionPdfBuffer(d, '');
+  if (!buffer) return null;
+
+  const auth = getOAuth2Client();
+  const drive = google.drive({ version: 'v3', auth });
   const pdfRes = await drive.files.create({
     requestBody: {
-      name: pdfName,
+      name: `臨時出店届_${d.shopName}.pdf`,
       parents: process.env.PDF_FOLDER_ID ? [process.env.PDF_FOLDER_ID] : undefined,
     },
-    media: { mimeType: 'application/pdf', body: Readable.from(Buffer.from(exportRes.data)) },
+    media: { mimeType: 'application/pdf', body: Readable.from(buffer) },
     fields: 'id, webViewLink',
   });
-
-  await drive.files.delete({ fileId: documentId });
 
   return pdfRes.data.webViewLink;
 }
@@ -565,6 +620,76 @@ app.post('/api/submit', async (req, res) => {
   } catch (error) {
     console.error('Submit error:', error);
     res.status(500).json({ ok: false, error: error.message || '送信処理に失敗しました。' });
+  }
+});
+
+// ===== 申し込み一覧（管理用） =====
+app.get('/api/submissions', requireAdminKey, async (req, res) => {
+  try {
+    const rows = await readSubmissionRows();
+    res.json({
+      ok: true,
+      rows: rows.map((r) => ({
+        rowNumber: r.rowNumber,
+        timestamp: r.timestamp,
+        shopName: r.shopName,
+        businessTypeLabel: r.businessTypeLabel,
+        foodName: r.foodName,
+        pdfLink: r.pdfLink,
+      })),
+    });
+  } catch (error) {
+    console.error('一覧取得エラー:', error.message);
+    res.status(500).json({ ok: false, error: error.message });
+  }
+});
+
+// ===== 選択した申し込みをまとめて1つのPDFにして返す（その日の日付を差し込む） =====
+app.post('/api/download-merged', requireAdminKey, async (req, res) => {
+  try {
+    const rowNumbers = Array.isArray(req.body.rowNumbers) ? req.body.rowNumbers : [];
+    if (rowNumbers.length === 0) {
+      return res.status(400).json({ ok: false, error: 'rowNumbersを指定してください。' });
+    }
+
+    const rows = await readSubmissionRows();
+    const targets = rows.filter((r) => rowNumbers.includes(r.rowNumber));
+    if (targets.length === 0) {
+      return res.status(404).json({ ok: false, error: '対象の申し込みが見つかりません。' });
+    }
+
+    const { PDFDocument } = require('pdf-lib');
+    const merged = await PDFDocument.create();
+    const todayText = formatJapaneseDate(new Date());
+
+    for (const t of targets) {
+      let d;
+      try {
+        d = JSON.parse(t.dataJson);
+      } catch {
+        continue;
+      }
+      const buffer = await renderSubmissionPdfBuffer(d, todayText);
+      if (!buffer) continue;
+      const src = await PDFDocument.load(buffer);
+      const copiedPages = await merged.copyPages(src, src.getPageIndices());
+      copiedPages.forEach((p) => merged.addPage(p));
+    }
+
+    if (merged.getPageCount() === 0) {
+      return res.status(422).json({ ok: false, error: '選択した申し込みからPDFを1件も作成できませんでした。' });
+    }
+
+    const mergedBytes = await merged.save();
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="shutten-todoke-matome.pdf"; filename*=UTF-8''${encodeURIComponent('臨時出店届_まとめ.pdf')}`
+    );
+    res.send(Buffer.from(mergedBytes));
+  } catch (error) {
+    console.error('PDFまとめエラー:', error.message);
+    res.status(500).json({ ok: false, error: error.message });
   }
 });
 
