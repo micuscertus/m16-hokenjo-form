@@ -614,20 +614,32 @@
   const BANNED_INGREDIENT_KEYWORDS = ['牛乳', '生乳', '白米'];
   const SELF_MADE_DRINK_KEYWORDS = ['シロップ', 'コーディアル', '自家製ドリンク', '自家調合', '自家製シロップ'];
   const RAW_CITRUS_DRINK_KEYWORDS = ['レモン', 'ライム', 'かぼす', 'すだち'];
+  const SELF_MADE_SYRUP_KEYWORDS = ['自家製シロップ', '自家調合', '自家製ドリンク', 'コーディアル'];
   const VAGUE_COOKING_PHRASES = ['温める', '熱湯を注ぐ', 'あたためる'];
   const RAW_OR_HEAT_NEEDED_KEYWORDS = ['きゅうり', 'レタス', 'トマト', 'キャベツ', '水菜', 'パクチー', 'もやし', '生野菜', '生の野菜', '生の果物', '焼きそば', 'そば', 'うどん', 'ラーメン', 'パスタ', '麺', '豚肉', '鶏肉', '牛肉', 'ひき肉', '魚', 'エビ', 'イカ', 'タコ', '卵'];
 
-  function detectRawCitrusInDrink(texts) {
+  function detectCitrusIssue(texts) {
     const list = Array.isArray(texts) ? texts : [texts];
+    const joined = list.filter(Boolean).join(' ');
+    const isSelfMade = joined.includes('自家製') || containsAny(joined, SELF_MADE_SYRUP_KEYWORDS);
     for (const text of list) {
       if (!text) continue;
       for (const k of RAW_CITRUS_DRINK_KEYWORDS) {
-        if (text.includes(k) && !text.includes(`${k}シロップ`) && !text.includes(`${k}果汁`)) {
-          return k;
-        }
+        if (!text.includes(k)) continue;
+        const isProcessed = text.includes(`${k}シロップ`) || text.includes(`${k}果汁`);
+        if (!isProcessed) return { type: 'raw', fruit: k };
+        if (isSelfMade) return { type: 'selfmade_syrup', fruit: k };
       }
     }
     return null;
+  }
+
+  function detectHomeBrewedCoffee(foodName, ing1, ing2, ing3, cookingMethod, cookingOther) {
+    const text = [foodName, ing1, ing2, ing3, cookingOther].filter(Boolean).join(' ');
+    const isCoffee = text.includes('コーヒー') || text.includes('珈琲');
+    const hasDripBag = text.includes('ドリップバッグ');
+    const brewingMethod = cookingMethod === 'other' || cookingMethod === 'pour';
+    return isCoffee && !hasDripBag && brewingMethod;
   }
   const HEAT_COOKING_METHODS = ['grill', 'boil', 'steam', 'fry'];
   const DRY_SAFE_KEYWORDS = ['乾麺', '乾き物', '乾物', 'せんべい', 'クッキー', 'ビスケット', '飴', 'キャンディ', 'ポップコーン', 'スナック', 'ドライフルーツ', '焼き菓子', '駄菓子', 'チップス', 'ナッツ'];
@@ -662,9 +674,11 @@
   function checkIngredientsLive() {
     const { foodName, ing1, ing2, ing3 } = getFoodNameAndIngredients();
     const cookingOther = document.getElementById('cookingMethodOther')?.value.trim() || '';
+    const cookingMethod = document.querySelector('input[name="cookingMethod"]:checked')?.value || null;
     const fields = [foodName, ing1, ing2, ing3, cookingOther];
 
     let ingredientsError = null;
+    let citrusIssue = null;
     for (const ing of [ing1, ing2, ing3]) {
       const banned = containsAny(ing, BANNED_INGREDIENT_KEYWORDS);
       if (banned) {
@@ -674,16 +688,23 @@
     }
 
     if (!ingredientsError) {
-      const citrusHit = detectRawCitrusInDrink(fields);
-      if (citrusHit) {
-        ingredientsError = `生の「${citrusHit}」はドリンクにそのまま使用できません。「市販のシロップを炭酸で割る」という形に変更してください。`;
+      citrusIssue = detectCitrusIssue(fields);
+      if (citrusIssue?.type === 'raw') {
+        ingredientsError = `「${citrusIssue.fruit}」は許可が通らないことが多いので、別のものを記載お願いします。`;
+      } else if (citrusIssue?.type === 'selfmade_syrup') {
+        ingredientsError = `「${citrusIssue.fruit}」などの自家製シロップは許可が通らないので、以下のように記載します：市販のシロップを炭酸で割る`;
       }
+    }
+
+    // cookingMethod='other'の場合はcheckCookingMethodLive()側でcookingMethodOtherフィールドに出すので、ここでは扱わない
+    if (!ingredientsError && cookingMethod !== 'other' && detectHomeBrewedCoffee(foodName, ing1, ing2, ing3, cookingMethod, cookingOther)) {
+      ingredientsError = 'コーヒーを豆から挽いて淹れる形では許可が通りません。調理方法は「市販のドリップバッグで一杯ずつ抽出する」に変更し、購入先には市販のドリップバッグの購入先を記入してください。';
     }
 
     setError('ingredients', ingredientsError);
 
     const drinkText = fields.filter(Boolean).join(' ');
-    const drinkHit = containsAny(drinkText, SELF_MADE_DRINK_KEYWORDS);
+    const drinkHit = !citrusIssue && containsAny(drinkText, SELF_MADE_DRINK_KEYWORDS);
     document.getElementById('drinkPermitFacilitySub')?.classList.toggle('hidden', !drinkHit);
     if (!drinkHit) {
       setError('drinkPermitFacility', null);
@@ -722,6 +743,12 @@
 
     if (selected === 'other') {
       const other = document.getElementById('cookingMethodOther')?.value.trim() || '';
+      const { foodName, ing1, ing2, ing3 } = getFoodNameAndIngredients();
+      if (other && detectHomeBrewedCoffee(foodName, ing1, ing2, ing3, selected, other)) {
+        // 実際の指摘文言「粉を入れて熱湯を注ぐ」等は曖昧チェックにも該当する短さのため、より具体的なこちらを優先する
+        setError('cookingMethodOther', 'コーヒーを豆から挽いて淹れる形では許可が通りません。「市販のドリップバッグで一杯ずつ抽出する」に変更し、購入先には市販のドリップバッグの購入先を記入してください。');
+        return;
+      }
       const vague = containsAny(other, VAGUE_COOKING_PHRASES);
       if (vague && other.length < 12) {
         setError('cookingMethodOther', `「${vague}」だけでは曖昧です。「十分に加熱する」「市販のティーバッグで一杯ずつ抽出する」のように具体的な工程を明記してください。`);
@@ -762,7 +789,7 @@
     });
   });
   document.querySelectorAll('input[name="cookingMethod"]').forEach((el) => {
-    el.addEventListener('change', () => { checkCookingMethodLive(); checkStorageLive(); });
+    el.addEventListener('change', () => { checkCookingMethodLive(); checkStorageLive(); checkIngredientsLive(); });
   });
   document.querySelectorAll('input[name="storage"]').forEach((el) => {
     el.addEventListener('change', checkStorageLive);

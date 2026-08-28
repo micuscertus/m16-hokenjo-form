@@ -42,6 +42,8 @@ const VAGUE_COOKING_PHRASES = ['温める', '熱湯を注ぐ', 'あたためる'
 const SELF_MADE_DRINK_KEYWORDS = ['シロップ', 'コーディアル', '自家製ドリンク', '自家調合', '自家製シロップ'];
 // 生の柑橘をそのままドリンクに使うのは不可（保健所確認済み：市販シロップに置き換える必要がある）
 const RAW_CITRUS_DRINK_KEYWORDS = ['レモン', 'ライム', 'かぼす', 'すだち'];
+// 自家製シロップ・コーディアルは許可が通らない（保健所確認済み：市販シロップへの変更が必要）
+const SELF_MADE_SYRUP_KEYWORDS = ['自家製シロップ', '自家調合', '自家製ドリンク', 'コーディアル'];
 // 生のまま提供されやすい／加熱が前提の食材（保健所確認済み：生のまま提供は不可）
 const RAW_OR_HEAT_NEEDED_KEYWORDS = ['きゅうり', 'レタス', 'トマト', 'キャベツ', '水菜', 'パクチー', 'もやし', '生野菜', '生の野菜', '生の果物', '焼きそば', 'そば', 'うどん', 'ラーメン', 'パスタ', '麺', '豚肉', '鶏肉', '牛肉', 'ひき肉', '魚', 'エビ', 'イカ', 'タコ', '卵'];
 // 実際に加熱する調理方法（これ以外は「加熱した」と見なさない）
@@ -59,20 +61,35 @@ function containsAny(text, keywords) {
   return hit || null;
 }
 
-// 「レモンシロップ」「レモン果汁」等の加工品表記は除外し、生の柑橘そのものの使用だけを拾う
-// texts は個別のフィールドごとの配列で渡すこと（結合してから判定すると、別欄の加工品表記が
-// 生の柑橘の記載を隠してしまう＝「レモンシロップ／カットレモン」のような分割記載をすり抜けさせてしまう）
-function detectRawCitrusInDrink(texts) {
+// 柑橘の記載を3パターンに分けて判定する。texts は個別のフィールドごとの配列で渡すこと
+// （結合してから判定すると、別欄の記載が判定を隠してしまう＝分割記載によるすり抜けを防ぐため）
+// - raw: 生の柑橘をそのまま使う記載（シロップ・果汁のような加工表記がない）→ 使用不可
+// - selfmade_syrup: 柑橘＋自家製シロップ・自家調合等の記載 → 自家製自体が許可が通らない
+// - null: 該当なし（市販シロップ等、加工品として問題なし）
+function detectCitrusIssue(texts) {
   const list = Array.isArray(texts) ? texts : [texts];
+  const joined = list.filter(Boolean).join(' ');
+  const isSelfMade = joined.includes('自家製') || containsAny(joined, SELF_MADE_SYRUP_KEYWORDS);
   for (const text of list) {
     if (!text) continue;
     for (const k of RAW_CITRUS_DRINK_KEYWORDS) {
-      if (text.includes(k) && !text.includes(`${k}シロップ`) && !text.includes(`${k}果汁`)) {
-        return k;
-      }
+      if (!text.includes(k)) continue;
+      const isProcessed = text.includes(`${k}シロップ`) || text.includes(`${k}果汁`);
+      if (!isProcessed) return { type: 'raw', fruit: k };
+      if (isSelfMade) return { type: 'selfmade_syrup', fruit: k };
     }
   }
   return null;
+}
+
+// 豆から挽いて熱湯を注ぐ等、店頭で自家抽出するコーヒーは許可が通らない（保健所確認済み）
+// 市販のドリップバッグで一杯ずつ抽出する形への変更が必要
+function detectHomeBrewedCoffee(d) {
+  const text = [d.foodName, ...(d.ingredients || []), d.cookingMethodOther].filter(Boolean).join(' ');
+  const isCoffee = text.includes('コーヒー') || text.includes('珈琲');
+  const hasDripBag = text.includes('ドリップバッグ');
+  const brewingMethod = d.cookingMethod === 'other' || d.cookingMethod === 'pour';
+  return isCoffee && !hasDripBag && brewingMethod;
 }
 
 // 取扱食品名に複数品目が書かれていないかの簡易判定（空白・読点・カンマで区切られていたら複数扱い）
@@ -166,6 +183,9 @@ function validateSubmission(d) {
     } else if (d.cookingMethod === 'other') {
       if (isBlank(d.cookingMethodOther)) {
         errors.cookingMethodOther = '「その他」を選んだ場合は具体的な調理方法を入力してください。';
+      } else if (detectHomeBrewedCoffee(d)) {
+        // 豆から挽いて熱湯を注ぐ系の短い記述は曖昧チェックにも該当するため、より具体的なこちらを優先する
+        errors.cookingMethodOther = 'コーヒーを豆から挽いて淹れる形では許可が通りません。「市販のドリップバッグで一杯ずつ抽出する」に変更し、購入先には市販のドリップバッグの購入先を記入してください。';
       } else {
         const vague = containsAny(d.cookingMethodOther, VAGUE_COOKING_PHRASES);
         if (vague && d.cookingMethodOther.trim().length < 12) {
@@ -191,7 +211,19 @@ function validateSubmission(d) {
       errors.serveMethodOther = '「その他」を選んだ場合は提供方法を具体的に入力してください。';
     }
 
+    // 生の柑橘（レモン等）をそのまま使う記載、または柑橘の自家製シロップは許可が通らない
+    let citrusIssue = null;
+    if (!errors.ingredients) {
+      citrusIssue = detectCitrusIssue([d.foodName, ...(d.ingredients || []), d.cookingMethodOther]);
+      if (citrusIssue?.type === 'raw') {
+        errors.ingredients = `「${citrusIssue.fruit}」は許可が通らないことが多いので、別のものを記載お願いします。`;
+      } else if (citrusIssue?.type === 'selfmade_syrup') {
+        errors.ingredients = `「${citrusIssue.fruit}」などの自家製シロップは許可が通らないので、以下のように記載します：市販のシロップを炭酸で割る`;
+      }
+    }
+
     // シロップ等を炭酸水・水で割るドリンクは、購入品でも自家製造でも清涼飲料水製造業の許可施設の記入が必要
+    // （citrusIssueで既にエラー確定していれば errors.ingredients が立っているのでここは自然にスキップされる）
     if (!errors.ingredients && !errors.cookingMethodOther) {
       const drinkText = [d.foodName, ...(d.ingredients || []), d.cookingMethodOther].filter(Boolean).join(' ');
       const drinkHit = containsAny(drinkText, SELF_MADE_DRINK_KEYWORDS);
@@ -202,12 +234,9 @@ function validateSubmission(d) {
       }
     }
 
-    // 生の柑橘（レモン等）をそのままドリンクに使うのは不可。市販シロップに置き換える必要がある
-    if (!errors.ingredients) {
-      const citrusHit = detectRawCitrusInDrink([d.foodName, ...(d.ingredients || []), d.cookingMethodOther]);
-      if (citrusHit) {
-        errors.ingredients = `生の「${citrusHit}」はドリンクにそのまま使用できません。「市販のシロップを炭酸で割る」という形に変更してください。`;
-      }
+    // 豆から挽いて自家抽出するコーヒーは許可が通らない。市販のドリップバッグへの変更が必要
+    if (!errors.ingredients && !errors.cookingMethodOther && detectHomeBrewedCoffee(d)) {
+      errors.ingredients = 'コーヒーを豆から挽いて淹れる形では許可が通りません。調理方法は「市販のドリップバッグで一杯ずつ抽出する」に変更し、購入先には市販のドリップバッグの購入先を記入してください。';
     }
 
     // 生のまま提供されやすい／加熱が前提の食材なのに、実際に加熱する調理方法が選ばれていない
@@ -273,6 +302,8 @@ async function aiSemanticCheck(d) {
 - 購入先の空欄・海外住所
 - 自家調合ドリンク（シロップ・コーディアル系）の清涼飲料水製造業許可の指摘（drinkPermitFacilityName・drinkPermitFacilityAddressに記入があれば、許可施設の記載要件は既に満たされているので指摘不要）
 - 生のレモン・ライム等をドリンクにそのまま使う点の指摘
+- 柑橘の自家製シロップ（自家製シロップ・自家調合等）が許可が通らない点の指摘
+- コーヒーを豆から挽いて自家抽出する点の指摘（市販ドリップバッグへの変更）
 
 指摘してほしいのは、たとえば以下のような機械的チェックをすり抜ける矛盾です:
 - 食品名と調理方法が明らかに矛盾している（例：トーストと書いてあるのに調理方法が「蒸す」）
