@@ -323,6 +323,9 @@ async function sendNotificationMail(d) {
     port: Number(process.env.MAIL_PORT || 465),
     secure: true,
     auth: { user: process.env.MAIL_USER, pass: process.env.MAIL_PASS },
+    connectionTimeout: 10000,
+    greetingTimeout: 10000,
+    socketTimeout: 10000,
   });
 
   const businessTypeLabel = d.businessType === 'restaurant' ? '飲食店' : '食品物販';
@@ -380,12 +383,10 @@ app.post('/api/submit', async (req, res) => {
       console.error('スプレッドシート書き込みエラー:', sheetError.message);
     }
 
-    // 4. 主催者への通知メール
-    try {
-      await sendNotificationMail(d);
-    } catch (mailError) {
+    // 4. 主催者への通知メール（応答をブロックしないよう待たない）
+    sendNotificationMail(d).catch((mailError) => {
       console.error('通知メール送信エラー:', mailError.message);
-    }
+    });
 
     res.json({ ok: true });
   } catch (error) {
