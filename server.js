@@ -16,6 +16,7 @@ if (fs.existsSync(envPath)) {
 const express = require('express');
 const Anthropic = require('@anthropic-ai/sdk');
 const { google } = require('googleapis');
+const nodemailer = require('nodemailer');
 
 const app = express();
 app.use(express.json());
@@ -310,6 +311,40 @@ async function writeToSheet(d) {
   });
 }
 
+// ===== 申し込み通知メール =====
+async function sendNotificationMail(d) {
+  if (!process.env.MAIL_HOST || !process.env.MAIL_USER || !process.env.MAIL_PASS) {
+    console.log('メール送信設定が未設定 - 通知メールをスキップ');
+    return;
+  }
+
+  const transporter = nodemailer.createTransport({
+    host: process.env.MAIL_HOST,
+    port: Number(process.env.MAIL_PORT || 465),
+    secure: true,
+    auth: { user: process.env.MAIL_USER, pass: process.env.MAIL_PASS },
+  });
+
+  const businessTypeLabel = d.businessType === 'restaurant' ? '飲食店' : '食品物販';
+  const body = `臨時出店届フォームに新しい申し込みがありました。
+
+店名: ${d.shopName}
+担当者: ${d.personName}
+電話番号: ${d.phone}
+住所: ${d.address}
+業態区分: ${businessTypeLabel}
+取扱食品名: ${d.foodName}
+
+詳細はスプレッドシートを確認してください。`;
+
+  await transporter.sendMail({
+    from: process.env.MAIL_USER,
+    to: process.env.MAIL_TO || process.env.MAIL_USER,
+    subject: `【臨時出店届】新規申し込み: ${d.shopName}`,
+    text: body,
+  });
+}
+
 // ===== APIエンドポイント =====
 app.post('/api/submit', async (req, res) => {
   try {
@@ -343,6 +378,13 @@ app.post('/api/submit', async (req, res) => {
       await writeToSheet(d);
     } catch (sheetError) {
       console.error('スプレッドシート書き込みエラー:', sheetError.message);
+    }
+
+    // 4. 主催者への通知メール
+    try {
+      await sendNotificationMail(d);
+    } catch (mailError) {
+      console.error('通知メール送信エラー:', mailError.message);
     }
 
     res.json({ ok: true });
