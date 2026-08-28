@@ -16,7 +16,6 @@ if (fs.existsSync(envPath)) {
 const express = require('express');
 const Anthropic = require('@anthropic-ai/sdk');
 const { google } = require('googleapis');
-const nodemailer = require('nodemailer');
 
 const app = express();
 app.use(express.json());
@@ -316,30 +315,49 @@ async function writeToSheet(d) {
   });
 }
 
-// ===== メール送信（Gmail SMTP経由。t@meguromarche.comはSend As検証済みのため送信元に指定可能） =====
-function getGmailTransporter() {
-  if (!process.env.GMAIL_USER || !process.env.GMAIL_APP_PASSWORD) {
+// ===== メール送信（Gmail APIをHTTPS経由で使用。SMTPポートがホスティング環境で塞がれているため） =====
+// t@meguromarche.comはGmail側でSend As検証済みのため、Fromに指定して送信できる
+function getGmailClient() {
+  if (!process.env.GMAIL_CLIENT_ID || !process.env.GMAIL_CLIENT_SECRET || !process.env.GMAIL_REFRESH_TOKEN) {
     return null;
   }
-  return nodemailer.createTransport({
-    host: 'smtp.gmail.com',
-    port: 465,
-    secure: true,
-    auth: { user: process.env.GMAIL_USER, pass: process.env.GMAIL_APP_PASSWORD },
-    connectionTimeout: 10000,
-    greetingTimeout: 10000,
-    socketTimeout: 10000,
+  const oAuth2Client = new google.auth.OAuth2(process.env.GMAIL_CLIENT_ID, process.env.GMAIL_CLIENT_SECRET);
+  oAuth2Client.setCredentials({ refresh_token: process.env.GMAIL_REFRESH_TOKEN });
+  return google.gmail({ version: 'v1', auth: oAuth2Client });
+}
+
+function encodeHeaderWord(text) {
+  return `=?UTF-8?B?${Buffer.from(text, 'utf8').toString('base64')}?=`;
+}
+
+function buildRawMessage({ fromName, fromEmail, to, subject, body }) {
+  const from = `${encodeHeaderWord(fromName)} <${fromEmail}>`;
+  const message = [
+    `From: ${from}`,
+    `To: ${to}`,
+    `Subject: ${encodeHeaderWord(subject)}`,
+    'MIME-Version: 1.0',
+    'Content-Type: text/plain; charset=UTF-8',
+    '',
+    body,
+  ].join('\r\n');
+  return Buffer.from(message, 'utf8').toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+async function sendGmail({ fromName, fromEmail, to, subject, body }) {
+  const gmail = getGmailClient();
+  if (!gmail) {
+    console.log('Gmail API設定が未設定 - メール送信をスキップ');
+    return;
+  }
+  await gmail.users.messages.send({
+    userId: 'me',
+    requestBody: { raw: buildRawMessage({ fromName, fromEmail, to, subject, body }) },
   });
 }
 
 // 主催者（自分）への通知メール
 async function sendNotificationMail(d) {
-  const transporter = getGmailTransporter();
-  if (!transporter) {
-    console.log('メール送信設定が未設定 - 通知メールをスキップ');
-    return;
-  }
-
   const businessTypeLabel = d.businessType === 'restaurant' ? '飲食店' : '食品物販';
   const body = `臨時出店届フォームに新しい申し込みがありました。
 
@@ -353,20 +371,18 @@ async function sendNotificationMail(d) {
 
 詳細はスプレッドシートを確認してください。`;
 
-  await transporter.sendMail({
-    from: `"目黒マルシェ自動処理" <${process.env.GMAIL_USER}>`,
+  await sendGmail({
+    fromName: '目黒マルシェ自動処理',
+    fromEmail: process.env.GMAIL_USER,
     to: process.env.ORGANIZER_EMAIL || process.env.GMAIL_USER,
     subject: `【臨時出店届】新規申し込み: ${d.shopName}`,
-    text: body,
+    body,
   });
 }
 
 // 出店者本人への受付完了メール（送信元はt@meguromarche.comとして送る）
 async function sendConfirmationMail(d) {
-  const transporter = getGmailTransporter();
-  if (!transporter || isBlank(d.email)) {
-    return;
-  }
+  if (isBlank(d.email)) return;
 
   const body = `${d.shopName} ご担当者様
 
@@ -380,11 +396,12 @@ async function sendConfirmationMail(d) {
 
 目黒マルシェ 事務局`;
 
-  await transporter.sendMail({
-    from: '"目黒マルシェ" <t@meguromarche.com>',
+  await sendGmail({
+    fromName: '目黒マルシェ',
+    fromEmail: 't@meguromarche.com',
     to: d.email,
     subject: '【目黒マルシェ】臨時出店届 受付完了のお知らせ',
-    text: body,
+    body,
   });
 }
 
@@ -436,38 +453,6 @@ app.post('/api/submit', async (req, res) => {
     console.error('Submit error:', error);
     res.status(500).json({ ok: false, error: error.message || '送信処理に失敗しました。' });
   }
-});
-
-// ===== デバッグ用：SMTPポートの疎通確認（診断が終わったら削除する） =====
-app.get('/api/debug-net', async (req, res) => {
-  const net = require('net');
-  const targets = [
-    { host: 'smtp.gmail.com', port: 465 },
-    { host: 'smtp.gmail.com', port: 587 },
-    { host: 'meguromarche.com', port: 465 },
-    { host: 'google.com', port: 443 },
-  ];
-  const results = {};
-  await Promise.all(targets.map((t) => new Promise((resolve) => {
-    const start = Date.now();
-    const socket = net.createConnection({ host: t.host, port: t.port, timeout: 8000 });
-    const key = `${t.host}:${t.port}`;
-    socket.on('connect', () => {
-      results[key] = `OK (${Date.now() - start}ms)`;
-      socket.destroy();
-      resolve();
-    });
-    socket.on('timeout', () => {
-      results[key] = `TIMEOUT (${Date.now() - start}ms)`;
-      socket.destroy();
-      resolve();
-    });
-    socket.on('error', (e) => {
-      results[key] = `ERROR: ${e.message} (${Date.now() - start}ms)`;
-      resolve();
-    });
-  })));
-  res.json(results);
 });
 
 app.get('*', (req, res) => {
