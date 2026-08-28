@@ -68,6 +68,11 @@ function validateSubmission(d) {
   } else if (!/^[0-9\-]{9,13}$/.test(d.phone.trim())) {
     errors.phone = '電話番号の形式が正しくありません（例：03-1234-5678）。';
   }
+  if (isBlank(d.email)) {
+    errors.email = 'メールアドレスを入力してください。';
+  } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(d.email.trim())) {
+    errors.email = 'メールアドレスの形式が正しくありません。';
+  }
   if (isBlank(d.cumulativeDays)) {
     errors.cumulativeDays = '本年度の累計出店日数を入力してください。';
   } else if (!/^[0-9]+$/.test(String(d.cumulativeDays).trim())) {
@@ -311,22 +316,29 @@ async function writeToSheet(d) {
   });
 }
 
-// ===== 申し込み通知メール =====
-async function sendNotificationMail(d) {
-  if (!process.env.MAIL_HOST || !process.env.MAIL_USER || !process.env.MAIL_PASS) {
-    console.log('メール送信設定が未設定 - 通知メールをスキップ');
-    return;
+// ===== メール送信（Gmail SMTP経由。t@meguromarche.comはSend As検証済みのため送信元に指定可能） =====
+function getGmailTransporter() {
+  if (!process.env.GMAIL_USER || !process.env.GMAIL_APP_PASSWORD) {
+    return null;
   }
-
-  const transporter = nodemailer.createTransport({
-    host: process.env.MAIL_HOST,
-    port: Number(process.env.MAIL_PORT || 465),
+  return nodemailer.createTransport({
+    host: 'smtp.gmail.com',
+    port: 465,
     secure: true,
-    auth: { user: process.env.MAIL_USER, pass: process.env.MAIL_PASS },
+    auth: { user: process.env.GMAIL_USER, pass: process.env.GMAIL_APP_PASSWORD },
     connectionTimeout: 10000,
     greetingTimeout: 10000,
     socketTimeout: 10000,
   });
+}
+
+// 主催者（自分）への通知メール
+async function sendNotificationMail(d) {
+  const transporter = getGmailTransporter();
+  if (!transporter) {
+    console.log('メール送信設定が未設定 - 通知メールをスキップ');
+    return;
+  }
 
   const businessTypeLabel = d.businessType === 'restaurant' ? '飲食店' : '食品物販';
   const body = `臨時出店届フォームに新しい申し込みがありました。
@@ -334,6 +346,7 @@ async function sendNotificationMail(d) {
 店名: ${d.shopName}
 担当者: ${d.personName}
 電話番号: ${d.phone}
+メールアドレス: ${d.email}
 住所: ${d.address}
 業態区分: ${businessTypeLabel}
 取扱食品名: ${d.foodName}
@@ -341,9 +354,36 @@ async function sendNotificationMail(d) {
 詳細はスプレッドシートを確認してください。`;
 
   await transporter.sendMail({
-    from: process.env.MAIL_USER,
-    to: process.env.MAIL_TO || process.env.MAIL_USER,
+    from: process.env.GMAIL_USER,
+    to: process.env.ORGANIZER_EMAIL || process.env.GMAIL_USER,
     subject: `【臨時出店届】新規申し込み: ${d.shopName}`,
+    text: body,
+  });
+}
+
+// 出店者本人への受付完了メール（送信元はt@meguromarche.comとして送る）
+async function sendConfirmationMail(d) {
+  const transporter = getGmailTransporter();
+  if (!transporter || isBlank(d.email)) {
+    return;
+  }
+
+  const body = `${d.shopName} ご担当者様
+
+目黒マルシェ 臨時出店届フォームへのお申し込みを受け付けました。
+
+店名: ${d.shopName}
+担当者: ${d.personName}
+
+内容を確認のうえ、必要があれば主催者よりご連絡いたします。
+このメールに心当たりがない場合はお手数ですが破棄してください。
+
+目黒マルシェ 事務局`;
+
+  await transporter.sendMail({
+    from: '"目黒マルシェ" <t@meguromarche.com>',
+    to: d.email,
+    subject: '【目黒マルシェ】臨時出店届 受付完了のお知らせ',
     text: body,
   });
 }
@@ -383,9 +423,12 @@ app.post('/api/submit', async (req, res) => {
       console.error('スプレッドシート書き込みエラー:', sheetError.message);
     }
 
-    // 4. 主催者への通知メール（応答をブロックしないよう待たない）
+    // 4. 主催者への通知メール・出店者への受付完了メール（応答をブロックしないよう待たない）
     sendNotificationMail(d).catch((mailError) => {
       console.error('通知メール送信エラー:', mailError.message);
+    });
+    sendConfirmationMail(d).catch((mailError) => {
+      console.error('受付完了メール送信エラー:', mailError.message);
     });
 
     res.json({ ok: true });

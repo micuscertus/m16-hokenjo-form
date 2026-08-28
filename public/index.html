@@ -292,6 +292,13 @@
         <div class="field-error"></div>
       </div>
 
+      <div class="field" data-field="email">
+        <label>メールアドレス</label>
+        <div class="help">受付完了の確認メールを送ります。</div>
+        <input type="text" id="email" placeholder="例：shop@example.com">
+        <div class="field-error"></div>
+      </div>
+
       <div class="field" data-field="cumulativeDays">
         <label>本年度の累計出店日数（今回の出店日数を含む）</label>
         <input type="number" id="cumulativeDays" placeholder="例：2">
@@ -809,6 +816,7 @@
       shopName: document.getElementById('shopName').value.trim(),
       personName: document.getElementById('personName').value.trim(),
       phone: document.getElementById('phone').value.trim(),
+      email: document.getElementById('email').value.trim(),
       cumulativeDays: document.getElementById('cumulativeDays').value.trim(),
       businessType,
     };
