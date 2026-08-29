@@ -767,6 +767,7 @@ async function renderSubmissionPdfBuffer(d, dateText) {
       '{{購入先住所}}': !isBlank(d.drinkPermitFacilityAddress)
         ? d.drinkPermitFacilityAddress
         : d.ingredientSourceType === 'selfmade' ? '' : d.ingredientSourceAddress,
+      '{{仕込先名前}}': d.prep === 'onsite' ? d.prepFacilityName : '',
       '{{仕込先住所}}': d.prep === 'onsite' ? d.prepFacilityAddress : '',
       '{{仕込み内容}}': d.prep === 'onsite' ? d.prepDetail : 'なし',
       '{{調理方法}}': COOKING_METHOD_LABELS[d.cookingMethod] || d.cookingMethodOther || '',
@@ -784,6 +785,7 @@ async function renderSubmissionPdfBuffer(d, dateText) {
       '{{材料3}}': '',
       '{{購入先名前}}': '',
       '{{購入先住所}}': '',
+      '{{仕込先名前}}': '',
       '{{仕込先住所}}': '',
       '{{仕込み内容}}': '',
       '{{調理方法}}': '',
