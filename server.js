@@ -20,7 +20,7 @@ const { google } = require('googleapis');
 
 // フォームの内部コードをPDF・表示用の日本語ラベルに変換する対応表
 const COOKING_METHOD_LABELS = {
-  grill: '焼く', boil: '煮る', steam: '蒸す', fry: '揚げる',
+  grill: '食材を焼く', boil: '食材と水を鍋で煮る', steam: '食材を蒸し器で蒸す', fry: '食材を油で揚げる',
   season: '味付けする', pour: '一杯ずつカップに抽出する', plate: 'よそう（盛り付ける）',
 };
 const STORAGE_LABELS = { normal: '常温', cold: '冷蔵（クーラーBOX等）', frozen: '冷凍' };
@@ -38,6 +38,13 @@ const OVERSEAS_KEYWORDS = ['中国', 'アメリカ', 'USA', '韓国', '台湾', 
 const BANNED_INGREDIENT_KEYWORDS = ['牛乳', '生乳'];
 // ご飯類をその場でよそう提供は不可（保健所確認済み）。パック詰め販売かクスクス等への変更が必要
 const RICE_KEYWORDS = ['ご飯', '白米', 'ライス', 'おにぎり', 'カレーライス'];
+// 「米」は部分一致だと「米粉」「米油」等の無関係な加工品まで拾ってしまうため、
+// フィールドの中身がちょうど「米」「お米」「生米」の場合だけヒットさせる
+const PLAIN_RICE_KEYWORDS = ['米', 'お米', '生米'];
+function detectPlainRiceWording(texts) {
+  const list = Array.isArray(texts) ? texts : [texts];
+  return list.some((t) => t && PLAIN_RICE_KEYWORDS.includes(t.trim()));
+}
 // 曖昧な調理表現
 const VAGUE_COOKING_PHRASES = ['熱湯を注ぐ'];
 // 「温める」「あたためる」は言葉自体が使用不可（保健所確認済み：滅菌できる強い加熱の言葉が必要）
@@ -55,6 +62,8 @@ const RAW_CITRUS_DRINK_KEYWORDS = ['レモン', 'ライム', 'かぼす', 'す�
 const RAW_OR_HEAT_NEEDED_KEYWORDS = ['きゅうり', 'レタス', 'トマト', 'キャベツ', '水菜', 'パクチー', 'もやし', '生野菜', '生の野菜', '生の果物', '焼きそば', 'そば', 'うどん', 'ラーメン', 'パスタ', '麺', '豚肉', '鶏肉', '牛肉', 'ひき肉', '魚', 'エビ', 'イカ', 'タコ', '卵'];
 // 実際に加熱する調理方法（これ以外は「加熱した」と見なさない）
 const HEAT_COOKING_METHODS = ['grill', 'boil', 'steam', 'fry'];
+// 調理方法「その他」の自由記述が実質的に加熱調理と読み取れるかの判定に使う言葉
+const HEAT_WORD_KEYWORDS = ['加熱', '焼く', '焼いて', '焼いた', '煮る', '煮て', '煮た', '蒸す', '蒸して', '蒸した', '揚げる', '揚げて', '揚げた'];
 // 常温保存でも問題ない食品（これに該当しなければ常温は警告対象）
 const DRY_SAFE_KEYWORDS = ['乾麺', '乾き物', '乾物', 'せんべい', 'クッキー', 'ビスケット', '飴', 'キャンディ', 'ポップコーン', 'スナック', 'ドライフルーツ', '焼き菓子', '駄菓子', 'チップス', 'ナッツ', 'コーヒー粉', 'ドリップパック', '茶葉', 'ティーバッグ'];
 // ハム・チーズは許可が通らない（保健所確認済み）
@@ -293,7 +302,7 @@ function validateSubmission(d) {
       bannedHits.forEach((b) => issues.push(`「${b}」は臨時出店では使用できません。オーツミルク・豆乳など代替品に変更してください。`));
 
       // ご飯類をその場でよそう提供は不可
-      if (containsAny([d.foodName, ...ingredients, d.cookingMethodOther].filter(Boolean).join(' '), RICE_KEYWORDS)) {
+      if (containsAny([d.foodName, ...ingredients, d.cookingMethodOther].filter(Boolean).join(' '), RICE_KEYWORDS) || detectPlainRiceWording([d.foodName, ...ingredients, d.cookingMethodOther])) {
         issues.push('ご飯をその場でよそるのは許可が下りません。パック詰めしたものを販売か、クスクスなどに変更して下さい。');
       }
 
@@ -354,9 +363,8 @@ function validateSubmission(d) {
         errors.prepDetail = '当日仕込み内容を具体的に入力してください。';
       } else if (detectVagueFillingWord(d.prepDetail)) {
         errors.prepDetail = '「具材」だけだと許可が通らないことが多いため、具体的な食材を2つほど記載してください。';
-      } else if (detectBoilWord(d.prepDetail)) {
-        errors.prepDetail = '茹でる（大量の水を使う調理）は許可が通りません。「煮る」を選択してください。';
       } else {
+        // 茹でる禁止は現場（出店ブース）の設備制約が理由なので、許可施設で行う仕込みには適用しない
         const weakHeat = detectWeakHeatWord(d.prepDetail);
         if (weakHeat) {
           const hasCrepe = [d.foodName, ...(d.ingredients || []), d.prepDetail].filter(Boolean).join(' ').includes(CREPE_KEYWORD);
@@ -427,11 +435,15 @@ function validateSubmission(d) {
       errors.ingredients = bulkBrewedDrinkMessage(detectBulkBrewedDrink(d));
     }
 
-    // 生のまま提供されやすい／加熱が前提の食材なのに、実際に加熱する調理方法が選ばれていない
+    // 生のまま提供されやすい／加熱が前提の食材なのに、実際に加熱する調理方法が選ばれていない。
+    // 「その他」は自由記述の中身に加熱を示す言葉があれば加熱調理とみなす（固定の調理方法以外は
+    // 一律NGにすると、その他を選んで「食材を焼く」等と具体的に書いても永久に解除できなくなるため）
     if (!errors.ingredients && !errors.cookingMethod) {
       const rawText = [d.foodName, ...(d.ingredients || [])].filter(Boolean).join(' ');
       const rawHit = containsAny(rawText, RAW_OR_HEAT_NEEDED_KEYWORDS);
-      if (rawHit && !HEAT_COOKING_METHODS.includes(d.cookingMethod)) {
+      const isHeated = HEAT_COOKING_METHODS.includes(d.cookingMethod)
+        || (d.cookingMethod === 'other' && Boolean(containsAny(d.cookingMethodOther, HEAT_WORD_KEYWORDS)));
+      if (rawHit && !isHeated) {
         errors.cookingMethod = '生野菜の使用は許可が通らないことが多いです。焼くことを記載するか、記載から省いてください。';
       }
     }

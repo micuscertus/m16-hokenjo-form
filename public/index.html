@@ -459,10 +459,10 @@
           <div class="ng-example">調理は1つしか許可が下りません。主となる調理を選んで下さい。<br>茹でる（大量の水を使う調理）は許可が通りません。煮るを選択して下さい。<br>温めるは通りません。加熱、煮る、焼く、蒸すなど滅菌できる言葉を書いてください。</div>
           <div class="ng-example">加熱せず生のまま提供すること（切っただけ・盛っただけ等）はできません（保健所に確認済み）。「よそう」「一杯ずつカップに抽出する」「その他」を選ぶ場合も、中身は加熱調理済みのものにしてください。</div>
           <div class="radio-group">
-            <label class="radio-option"><input type="radio" name="cookingMethod" value="grill">焼く</label>
-            <label class="radio-option"><input type="radio" name="cookingMethod" value="boil">煮る</label>
-            <label class="radio-option"><input type="radio" name="cookingMethod" value="steam">蒸す</label>
-            <label class="radio-option"><input type="radio" name="cookingMethod" value="fry">揚げる</label>
+            <label class="radio-option"><input type="radio" name="cookingMethod" value="grill">食材を焼く</label>
+            <label class="radio-option"><input type="radio" name="cookingMethod" value="boil">食材と水を鍋で煮る</label>
+            <label class="radio-option"><input type="radio" name="cookingMethod" value="steam">食材を蒸し器で蒸す</label>
+            <label class="radio-option"><input type="radio" name="cookingMethod" value="fry">食材を油で揚げる</label>
             <label class="radio-option"><input type="radio" name="cookingMethod" value="season">味付けする</label>
             <label class="radio-option"><input type="radio" name="cookingMethod" value="pour">一杯ずつカップに抽出する</label>
             <label class="radio-option"><input type="radio" name="cookingMethod" value="plate">よそう（盛り付ける）</label>
@@ -649,6 +649,13 @@
   const BANNED_INGREDIENT_KEYWORDS = ['牛乳', '生乳'];
   // ご飯類をその場でよそう提供は不可（保健所確認済み）。パック詰め販売かクスクス等への変更が必要
   const RICE_KEYWORDS = ['ご飯', '白米', 'ライス', 'おにぎり', 'カレーライス'];
+  // 「米」は部分一致だと「米粉」「米油」等の無関係な加工品まで拾ってしまうため、
+  // フィールドの中身がちょうど「米」「お米」「生米」の場合だけヒットさせる
+  const PLAIN_RICE_KEYWORDS = ['米', 'お米', '生米'];
+  function detectPlainRiceWording(texts) {
+    const list = Array.isArray(texts) ? texts : [texts];
+    return list.some((t) => t && PLAIN_RICE_KEYWORDS.includes(t.trim()));
+  }
   const SELF_MADE_DRINK_KEYWORDS = ['シロップ', 'コーディアル', '自家製ドリンク', '自家調合', '自家製シロップ', '果汁'];
   const MARKET_BOUGHT_MARKER = '市販';
   const RAW_CITRUS_DRINK_KEYWORDS = ['レモン', 'ライム', 'かぼす', 'すだち'];
@@ -810,6 +817,8 @@
     return '「温める」という言葉は使えません。加熱、煮る、焼く、蒸すなどの強く火が通る滅菌できる言葉を使ってください。';
   }
   const HEAT_COOKING_METHODS = ['grill', 'boil', 'steam', 'fry'];
+  // 調理方法「その他」の自由記述が実質的に加熱調理と読み取れるかの判定に使う言葉
+  const HEAT_WORD_KEYWORDS = ['加熱', '焼く', '焼いて', '焼いた', '煮る', '煮て', '煮た', '蒸す', '蒸して', '蒸した', '揚げる', '揚げて', '揚げた'];
   const DRY_SAFE_KEYWORDS = ['乾麺', '乾き物', '乾物', 'せんべい', 'クッキー', 'ビスケット', '飴', 'キャンディ', 'ポップコーン', 'スナック', 'ドライフルーツ', '焼き菓子', '駄菓子', 'チップス', 'ナッツ', 'コーヒー粉', 'ドリップパック', '茶葉', 'ティーバッグ'];
 
   function containsAny(text, keywords) {
@@ -864,7 +873,7 @@
     }
     bannedHits.forEach((b) => issues.push(`「${b}」は臨時出店では使用できません。オーツミルク・豆乳など代替品に変更してください。`));
 
-    if (containsAny([foodName, ...ingList, cookingOther].filter(Boolean).join(' '), RICE_KEYWORDS)) {
+    if (containsAny([foodName, ...ingList, cookingOther].filter(Boolean).join(' '), RICE_KEYWORDS) || detectPlainRiceWording([foodName, ...ingList, cookingOther])) {
       issues.push('ご飯をその場でよそるのは許可が下りません。パック詰めしたものを販売か、クスクスなどに変更して下さい。');
     }
 
@@ -947,7 +956,11 @@
       const { foodName, ing1, ing2, ing3 } = getFoodNameAndIngredients();
       const rawText = [foodName, ing1, ing2, ing3].filter(Boolean).join(' ');
       const rawHit = containsAny(rawText, RAW_OR_HEAT_NEEDED_KEYWORDS);
-      if (rawHit && !HEAT_COOKING_METHODS.includes(selected)) {
+      // 「その他」は自由記述に加熱を示す言葉があれば加熱調理とみなす（固定の調理方法以外は一律NGにすると、
+      // その他を選んで「食材を焼く」等と具体的に書いても永久に解除できなくなるため）
+      const isHeated = HEAT_COOKING_METHODS.includes(selected)
+        || (selected === 'other' && Boolean(containsAny(coffeeOtherText, HEAT_WORD_KEYWORDS)));
+      if (rawHit && !isHeated) {
         setError('cookingMethod', '生野菜の使用は許可が通らないことが多いです。焼くことを記載するか、記載から省いてください。');
         return;
       }
@@ -1011,10 +1024,7 @@
       setError('prepDetail', '「具材」だけだと許可が通らないことが多いため、具体的な食材を2つほど記載してください。');
       return;
     }
-    if (detectBoilWord(detail)) {
-      setError('prepDetail', '茹でる（大量の水を使う調理）は許可が通りません。「煮る」を選択してください。');
-      return;
-    }
+    // 茹でる禁止は現場（出店ブース）の設備制約が理由なので、許可施設で行う仕込みには適用しない
     const weakHeat = detectWeakHeatWord(detail);
     if (weakHeat) {
       const { foodName, ing1, ing2, ing3 } = getFoodNameAndIngredients();
