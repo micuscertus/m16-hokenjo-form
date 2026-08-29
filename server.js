@@ -58,8 +58,19 @@ const SELF_MADE_DRINK_KEYWORDS = ['シロップ', 'コーディアル', '自家�
 const MARKET_BOUGHT_MARKER = '市販';
 // 生の柑橘をそのままドリンクに使うのは不可（保健所確認済み：市販シロップに置き換える必要がある）
 const RAW_CITRUS_DRINK_KEYWORDS = ['レモン', 'ライム', 'かぼす', 'すだち'];
-// 生のまま提供されやすい／加熱が前提の食材（保健所確認済み：生のまま提供は不可）
-const RAW_OR_HEAT_NEEDED_KEYWORDS = ['きゅうり', 'レタス', 'トマト', 'キャベツ', '水菜', 'パクチー', 'もやし', '生野菜', '生の野菜', '生の果物', '焼きそば', 'そば', 'うどん', 'ラーメン', 'パスタ', '麺', '豚肉', '鶏肉', '牛肉', 'ひき肉', '魚', 'エビ', 'イカ', 'タコ', '卵'];
+// 生のまま提供されやすい／加熱が前提の食材（保健所確認済み：生のまま提供は不可）。
+// 野菜は専用の文言（「生野菜」）を出し、それ以外（麺・肉・魚介・卵）はカテゴリごとに文言を
+// 増やすとパターンが際限なく増えるため、まとめて「生の食材」という汎用文言で扱う
+const RAW_VEGETABLE_KEYWORDS = ['きゅうり', 'レタス', 'トマト', 'キャベツ', '水菜', 'パクチー', 'もやし', '生野菜', '生の野菜', '生の果物'];
+const RAW_OTHER_KEYWORDS = ['焼きそば', 'そば', 'うどん', 'ラーメン', 'パスタ', '麺', '豚肉', '鶏肉', '牛肉', 'ひき肉', '魚', 'エビ', 'イカ', 'タコ', '卵'];
+const RAW_OR_HEAT_NEEDED_KEYWORDS = [...RAW_VEGETABLE_KEYWORDS, ...RAW_OTHER_KEYWORDS];
+// 生食材ヒットのカテゴリに応じて文言を出し分ける
+function rawFoodMessage(text) {
+  if (containsAny(text, RAW_VEGETABLE_KEYWORDS)) {
+    return '生野菜の使用は許可が通らないことが多いです。焼くことを記載するか、記載から省いてください。';
+  }
+  return '生の食材の使用は許可が通らないことが多いです。焼くことを記載するか、記載から省いてください。';
+}
 // 実際に加熱する調理方法（これ以外は「加熱した」と見なさない）
 const HEAT_COOKING_METHODS = ['grill', 'boil', 'steam', 'fry'];
 // 調理方法「その他」の自由記述が実質的に加熱調理と読み取れるかの判定に使う言葉
@@ -444,7 +455,7 @@ function validateSubmission(d) {
       const isHeated = HEAT_COOKING_METHODS.includes(d.cookingMethod)
         || (d.cookingMethod === 'other' && Boolean(containsAny(d.cookingMethodOther, HEAT_WORD_KEYWORDS)));
       if (rawHit && !isHeated) {
-        errors.cookingMethod = '生野菜の使用は許可が通らないことが多いです。焼くことを記載するか、記載から省いてください。';
+        errors.cookingMethod = rawFoodMessage(rawText);
       }
     }
   }
