@@ -431,7 +431,7 @@
 
         <div class="field" data-field="prep">
           <label>仕込みについて</label>
-          <div class="ng-example">出店ブースその場での野菜・具材のカットは不可です（保健所に確認済み）。カット等の下ごしらえは必ず許可のある施設（またはシェアキッチン等）で、当日行ってください。</div>
+          <div class="ng-example">出店ブースその場での野菜・具材のカットは許可が通らないので、カット等の下ごしらえは許可のある施設（またはシェアキッチン等）で、当日行うと記入すること。</div>
           <div class="radio-group">
             <label class="radio-option"><input type="radio" name="prep" value="onsite">保健所許可のある施設（またはシェアキッチン等）で当日仕込みあり</label>
             <label class="radio-option"><input type="radio" name="prep" value="none">仕込みなし</label>
@@ -439,7 +439,7 @@
           <div class="field-error"></div>
 
           <div class="sub-field hidden" id="prepSub">
-            <div class="ng-example">許可施設でカットした場合でも、生のまま提供することはできません。当日必ず加熱調理してください。</div>
+            <div class="ng-example">許可施設でカットした場合でも、生のまま提供することは許可が通らないので、当日必ず加熱調理すると記入すること。</div>
             <div class="field" data-field="prepFacility">
               <label>仕込みを行う施設の名称・住所</label>
               <input type="text" id="prepFacilityName" placeholder="施設名（例：○○シェアキッチン）" style="margin-bottom:8px">
@@ -457,8 +457,8 @@
 
         <div class="field" data-field="cookingMethod">
           <label>調理方法（主たるもの1つのみ）</label>
-          <div class="ng-example">調理は1つしか許可が下りません。主となる調理を選んで下さい。<br>茹でる（大量の水を使う調理）は許可が通りません。煮るを選択して下さい。<br>温めるは通りません。加熱、煮る、焼く、蒸すなど滅菌できる言葉を書いてください。</div>
-          <div class="ng-example">加熱せず生のまま提供すること（切っただけ・盛っただけ等）はできません（保健所に確認済み）。「よそう」「一杯ずつカップに抽出する」「その他」を選ぶ場合も、中身は加熱調理済みのものにしてください。</div>
+          <div class="ng-example">調理は1つだけ、主となる調理を選ぶ。余計なことを書くと落とされる原因となるため、出来るだけチェック項目から選ぶ。<br>茹でる（大量の水を使う調理）は許可が通らない場合がある ⇒ 煮るを選択。<br>温めるは通らない ⇒ 加熱、煮る、焼く、蒸すなど滅菌できる調理を書く。</div>
+          <div class="ng-example">加熱せず生のまま提供すること（切っただけ・盛っただけ等）は通らない場合がある。「よそう」「一杯ずつカップに抽出する」「その他」を選ぶ場合も、中身は加熱調理済みのものにする方が好ましい。「その他」を選ぶ場合は「焼く」「煮る」「蒸す」「揚げる」「加熱する」のいずれかの言葉を書くと通りやすい。</div>
           <div class="radio-group">
             <label class="radio-option"><input type="radio" name="cookingMethod" value="grill">食材を焼く</label>
             <label class="radio-option"><input type="radio" name="cookingMethod" value="boil">食材と水を鍋で煮る</label>
