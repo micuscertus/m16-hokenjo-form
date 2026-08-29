@@ -93,6 +93,19 @@
     line-height: 1.5;
   }
 
+  .soft-notice {
+    display: none;
+    font-size: 12px;
+    color: #a15c00;
+    background: #fff8e6;
+    border-radius: 6px;
+    padding: 6px 8px;
+    margin-top: 6px;
+    line-height: 1.5;
+  }
+
+  .soft-notice.show { display: block; }
+
   input[type="text"],
   input[type="number"],
   select,
@@ -363,18 +376,20 @@
             ・牛乳（オーツミルク・豆乳等に変更してください）<br><br>
             <strong>ご飯・白米・ライス・おにぎり・カレーライス等をその場でよそう提供はできません。</strong>パック詰めしたものを販売するか、クスクスなどに変更してください。<br><br>
             <strong>生野菜を生のまま提供することはできません（保健所に確認済み。許可施設でカットしても、生のまま出すこと自体が不可）。</strong>必ず加熱調理する内容にしてください。加熱する場合以外は記載しないようお願いします。<br><br>
-            <strong>生のレモン・ライム等をドリンクにそのまま使うことはできません。</strong>「市販のシロップを炭酸で割る」形に変更してください。
+            <strong>生のレモン・ライム等をドリンクにそのまま使うことはできません。</strong>「市販のシロップを炭酸で割る」形に変更してください。<br><br>
+            <strong>自家製シロップは許可が通らないことが多いです。</strong>清涼飲料水製造許可のある施設をお持ちでなければ「市販のシロップ」と記載してください。
           </div>
           <div class="ingredient-row"><span>①</span><input type="text" id="ingredient1" placeholder="例：豚肉"></div>
           <div class="ingredient-row"><span>②</span><input type="text" id="ingredient2" placeholder="例：パン（無ければ空欄で可）"></div>
           <div class="ingredient-row"><span>③</span><input type="text" id="ingredient3" placeholder="例：ソース（無ければ空欄で可）"></div>
           <div class="field-error"></div>
+          <div class="soft-notice" id="rawVegNotice">生野菜の使用は許可が通らないことが多いです。焼くことを記載するか、記載から省いてください。</div>
         </div>
 
         <div class="field" data-field="drinkPermitFacility">
           <div class="sub-field hidden" id="drinkPermitFacilitySub">
             <label>清涼飲料水製造業の許可施設（名称・住所）</label>
-            <div class="help">シロップ等を炭酸水・水で割って提供する場合、購入品でも自家製造でも許可施設の記載が必要です（保健所に確認済み）。</div>
+            <div class="help">自家製シロップは通らないことが多いです。清涼飲料水製造許可のある施設をお持ちの場合はこちらに名称・住所を記入してください。お持ちでない場合は、材料欄に「市販のシロップ」と記載してください。</div>
             <input type="text" id="drinkPermitFacilityName" placeholder="施設名" style="margin-bottom:8px">
             <input type="text" id="drinkPermitFacilityAddress" placeholder="施設住所">
             <div class="field-error"></div>
@@ -627,9 +642,9 @@
   const BANNED_INGREDIENT_KEYWORDS = ['牛乳', '生乳'];
   // ご飯類をその場でよそう提供は不可（保健所確認済み）。パック詰め販売かクスクス等への変更が必要
   const RICE_KEYWORDS = ['ご飯', '白米', 'ライス', 'おにぎり', 'カレーライス'];
-  const SELF_MADE_DRINK_KEYWORDS = ['シロップ', 'コーディアル', '自家製ドリンク', '自家調合', '自家製シロップ'];
+  const SELF_MADE_DRINK_KEYWORDS = ['シロップ', 'コーディアル', '自家製ドリンク', '自家調合', '自家製シロップ', '果汁'];
+  const MARKET_BOUGHT_MARKER = '市販';
   const RAW_CITRUS_DRINK_KEYWORDS = ['レモン', 'ライム', 'かぼす', 'すだち'];
-  const SELF_MADE_SYRUP_KEYWORDS = ['自家製シロップ', '自家調合', '自家製ドリンク', 'コーディアル'];
   const VAGUE_COOKING_PHRASES = ['熱湯を注ぐ'];
   // 語幹だけだと「常温めんつゆ」のような無関係な語に誤爆するため、活用語尾込みの正規表現で持つ
   const WEAK_HEAT_REGEX = /(温め|あたため)(る|て|た|ます|ない)/;
@@ -654,7 +669,8 @@
     return m ? m[0] : null;
   }
 
-  // 該当する分は全部集めて配列で返す（複数の柑橘・複数フィールドの問題を取りこぼさないため）
+  // 生の柑橘のみ検知（シロップ・果汁の加工表記があれば対象外）。シロップの自家製／市販の扱いは
+  // drinkPermitFacilityの統一ルールで別途判定する。該当する分は全部集めて配列で返す
   function detectCitrusIssues(texts) {
     const list = Array.isArray(texts) ? texts : [texts];
     const results = [];
@@ -664,33 +680,32 @@
       for (const k of RAW_CITRUS_DRINK_KEYWORDS) {
         if (!text.includes(k)) continue;
         const isProcessed = text.includes(`${k}シロップ`) || text.includes(`${k}果汁`);
-        let type = null;
-        if (!isProcessed) {
-          type = 'raw';
-        } else {
-          // 同一フィールド内の共起で見る（別欄の無関係な「自家製」に誤爆しないため）
-          const isSelfMade = text.includes('自家製') || containsAny(text, SELF_MADE_SYRUP_KEYWORDS);
-          if (isSelfMade) type = 'selfmade_syrup';
-        }
-        if (type) {
-          const key = `${type}:${k}`;
-          if (!seen.has(key)) {
-            seen.add(key);
-            results.push({ type, fruit: k });
-          }
+        if (isProcessed) continue;
+        if (!seen.has(k)) {
+          seen.add(k);
+          results.push({ type: 'raw', fruit: k });
         }
       }
     }
     return results;
   }
 
-  // 「自家製」と「シロップ」が近接している場合のみヒットさせる（読点等を挟んで無関係な物同士が
-  // 同一フィールド内で共起するケースの誤爆を防ぐ）。SELF_MADE_SYRUP_KEYWORDSは使わない
-  // （'自家調合のタレ'等、シロップと無関係な文脈にも単独一致してしまうため）
-  const SELF_MADE_SYRUP_REGEX = /自家製[^。、\s]{0,15}シロップ/;
-  function detectGeneralSelfMadeSyrup(texts) {
+  // シロップ・果汁等のドリンクは清涼飲料水製造業の許可施設の記載が必要。「市販」と同じ区切りの
+  // 記載単位に書かれていれば市販品の宣言と見なし、その分は施設記載不要とする（フィールド全体での
+  // 共起にすると「自家製シロップ、市販のレモン果汁」のような1欄複数品目で誤って打ち消してしまうため、
+  // 品目の区切りとして使われがちな読点・カンマ・中黒・空白で区切って判定する）
+  function detectDrinkPermitNeeded(texts) {
     const list = Array.isArray(texts) ? texts : [texts];
-    return list.some((text) => text && SELF_MADE_SYRUP_REGEX.test(text));
+    for (const text of list) {
+      if (!text) continue;
+      for (const segment of text.split(/[、,・\s]+/)) {
+        const hit = containsAny(segment, SELF_MADE_DRINK_KEYWORDS);
+        if (hit && !segment.includes(MARKET_BOUGHT_MARKER)) {
+          return hit;
+        }
+      }
+    }
+    return null;
   }
 
   function detectBulkBrewedDrink(foodName, ing1, ing2, ing3, cookingMethod, cookingOther) {
@@ -815,16 +830,8 @@
 
     const citrusIssues = detectCitrusIssues(fields);
     citrusIssues.forEach((ci) => {
-      if (ci.type === 'raw') {
-        issues.push(`「${ci.fruit}」は許可が通らないことが多いので、別のものを記載お願いします。`);
-      } else if (ci.type === 'selfmade_syrup') {
-        issues.push(`「${ci.fruit}」などの自家製シロップは許可が通らないので、以下のように記載します：市販のシロップを炭酸で割る`);
-      }
+      issues.push(`「${ci.fruit}」は許可が通らないことが多いので、別のものを記載お願いします。`);
     });
-
-    if (citrusIssues.length === 0 && detectGeneralSelfMadeSyrup(fields)) {
-      issues.push('自家製シロップは通らないことが多いです。許可をもらうため、「市販のシロップを使用」と記載お願いします。');
-    }
 
     let ingredientsError = issues.length > 0 ? issues.join('\n') : null;
 
@@ -838,8 +845,12 @@
 
     setError('ingredients', ingredientsError);
 
-    const drinkText = fields.filter(Boolean).join(' ');
-    const drinkHit = !ingredientsError && containsAny(drinkText, SELF_MADE_DRINK_KEYWORDS);
+    // 生野菜等の注意は、調理方法を選ぶ前のソフトな早期注意としてのみ出す。調理方法を選んだ後は
+    // checkCookingMethodLive()側の赤字エラーが同じ内容をカバーするので、二重表示を避けるため出さない
+    const rawVegHit = !cookingMethod && containsAny([foodName, ing1, ing2, ing3].filter(Boolean).join(' '), RAW_OR_HEAT_NEEDED_KEYWORDS);
+    document.getElementById('rawVegNotice')?.classList.toggle('show', Boolean(rawVegHit));
+
+    const drinkHit = !ingredientsError && detectDrinkPermitNeeded(fields);
     document.getElementById('drinkPermitFacilitySub')?.classList.toggle('hidden', !drinkHit);
     if (!drinkHit) {
       setError('drinkPermitFacility', null);
@@ -852,7 +863,7 @@
     const name = document.getElementById('drinkPermitFacilityName')?.value.trim() || '';
     const address = document.getElementById('drinkPermitFacilityAddress')?.value.trim() || '';
     if (!name || !address) {
-      setError('drinkPermitFacility', `「${drinkHit}」を使う場合、清涼飲料水製造業の許可施設の名称と住所を記入してください。`);
+      setError('drinkPermitFacility', '自家製シロップは通らないことが多いです。清涼飲料水製造許可のある施設でない場合、許可をもらうため、「市販のシロップを使用」と記載お願いします。施設をお持ちの場合は施設の名称と住所を記入してください。');
       return;
     }
     setError('drinkPermitFacility', null);
@@ -953,8 +964,8 @@
   document.getElementById('prepDetail')?.addEventListener('input', checkPrepDetailLive);
   ['drinkPermitFacilityName', 'drinkPermitFacilityAddress'].forEach((id) => {
     document.getElementById(id)?.addEventListener('input', () => {
-      const drinkText = [document.getElementById('foodName')?.value, document.getElementById('ingredient1')?.value, document.getElementById('ingredient2')?.value, document.getElementById('ingredient3')?.value, document.getElementById('cookingMethodOther')?.value].filter(Boolean).join(' ');
-      const drinkHit = containsAny(drinkText, SELF_MADE_DRINK_KEYWORDS);
+      const drinkFields = [document.getElementById('foodName')?.value, document.getElementById('ingredient1')?.value, document.getElementById('ingredient2')?.value, document.getElementById('ingredient3')?.value, document.getElementById('cookingMethodOther')?.value];
+      const drinkHit = detectDrinkPermitNeeded(drinkFields);
       if (drinkHit) checkDrinkPermitFacilityLive(drinkHit);
     });
   });
@@ -1044,6 +1055,7 @@
     document.querySelectorAll('input[type="text"], input[type="number"], textarea').forEach((el) => { el.value = ''; });
     document.querySelectorAll('select').forEach((el) => { el.value = ''; });
     document.querySelectorAll('.sub-field').forEach((el) => el.classList.add('hidden'));
+    document.querySelectorAll('.soft-notice').forEach((el) => el.classList.remove('show'));
     restaurantSection.classList.add('hidden');
     retailSection.classList.add('hidden');
     clearAllErrors();

@@ -46,11 +46,11 @@ const WEAK_HEAT_REGEX = /(温め|あたため)(る|て|た|ます|ない)/;
 // 「茹でる」（大量の水を使う調理）は不可、「煮る」を選ぶよう案内する
 const BOIL_WORD_REGEX = /茹で(る|て|た|ます|ない)/;
 // 自家調合ドリンク（清涼飲料水製造業の許可が必要になるパターン）
-const SELF_MADE_DRINK_KEYWORDS = ['シロップ', 'コーディアル', '自家製ドリンク', '自家調合', '自家製シロップ'];
+const SELF_MADE_DRINK_KEYWORDS = ['シロップ', 'コーディアル', '自家製ドリンク', '自家調合', '自家製シロップ', '果汁'];
+// 上記キーワードと同一フィールド内にこれが含まれていれば「市販品を使う」宣言と見なし、許可施設の記載は不要にする
+const MARKET_BOUGHT_MARKER = '市販';
 // 生の柑橘をそのままドリンクに使うのは不可（保健所確認済み：市販シロップに置き換える必要がある）
 const RAW_CITRUS_DRINK_KEYWORDS = ['レモン', 'ライム', 'かぼす', 'すだち'];
-// 自家製シロップ・コーディアルは許可が通らない（保健所確認済み：市販シロップへの変更が必要）
-const SELF_MADE_SYRUP_KEYWORDS = ['自家製シロップ', '自家調合', '自家製ドリンク', 'コーディアル'];
 // 生のまま提供されやすい／加熱が前提の食材（保健所確認済み：生のまま提供は不可）
 const RAW_OR_HEAT_NEEDED_KEYWORDS = ['きゅうり', 'レタス', 'トマト', 'キャベツ', '水菜', 'パクチー', 'もやし', '生野菜', '生の野菜', '生の果物', '焼きそば', 'そば', 'うどん', 'ラーメン', 'パスタ', '麺', '豚肉', '鶏肉', '牛肉', 'ひき肉', '魚', 'エビ', 'イカ', 'タコ', '卵'];
 // 実際に加熱する調理方法（これ以外は「加熱した」と見なさない）
@@ -88,11 +88,10 @@ function detectBoilWord(text) {
   return m ? m[0] : null;
 }
 
-// 柑橘の記載を3パターンに分けて判定する。texts は個別のフィールドごとの配列で渡すこと
-// （結合してから判定すると、別欄の記載が判定を隠してしまう＝分割記載によるすり抜けを防ぐため）
-// 該当する分は全部集めて配列で返す（複数の柑橘・複数フィールドの問題を取りこぼさないため）
-// - raw: 生の柑橘をそのまま使う記載（シロップ・果汁のような加工表記がない）→ 使用不可
-// - selfmade_syrup: 柑橘＋自家製シロップ・自家調合等の記載 → 自家製自体が許可が通らない
+// 柑橘の記載のうち「生のまま使う」ものだけを検知する（シロップ・果汁のような加工表記があれば対象外）。
+// シロップとしての自家製／市販の扱いは、柑橘に限らず全てdrinkPermitFacilityの統一ルールで扱う。
+// texts は個別のフィールドごとの配列で渡すこと（結合してから判定すると、別欄の記載が判定を隠して
+// しまう＝分割記載によるすり抜けを防ぐため）。該当する分は全部集めて配列で返す
 function detectCitrusIssues(texts) {
   const list = Array.isArray(texts) ? texts : [texts];
   const results = [];
@@ -102,24 +101,34 @@ function detectCitrusIssues(texts) {
     for (const k of RAW_CITRUS_DRINK_KEYWORDS) {
       if (!text.includes(k)) continue;
       const isProcessed = text.includes(`${k}シロップ`) || text.includes(`${k}果汁`);
-      let type = null;
-      if (!isProcessed) {
-        type = 'raw';
-      } else {
-        // 「自家製」等の判定は同一フィールド内の共起で見る（別欄の無関係な「自家製」に誤爆しないため）
-        const isSelfMade = text.includes('自家製') || containsAny(text, SELF_MADE_SYRUP_KEYWORDS);
-        if (isSelfMade) type = 'selfmade_syrup';
-      }
-      if (type) {
-        const key = `${type}:${k}`;
-        if (!seen.has(key)) {
-          seen.add(key);
-          results.push({ type, fruit: k });
-        }
+      if (isProcessed) continue;
+      if (!seen.has(k)) {
+        seen.add(k);
+        results.push({ type: 'raw', fruit: k });
       }
     }
   }
   return results;
+}
+
+// シロップ・果汁等のドリンクは清涼飲料水製造業の許可施設の記載が必要（保健所確認済み）。
+// 「市販」と同じ区切りの記載単位に書かれていれば市販品の宣言と見なし、その分は施設記載不要とする。
+// フィールド全体での共起にすると「自家製シロップ、市販のレモン果汁」のように1欄に複数品目を
+// 書いた場合に無関係な「市販」で自家製側まで打ち消してしまうため、品目の区切りとして使われがちな
+// 読点・カンマ・中黒・空白で区切って判定する
+// texts は個別のフィールドごとの配列で渡すこと
+function detectDrinkPermitNeeded(texts) {
+  const list = Array.isArray(texts) ? texts : [texts];
+  for (const text of list) {
+    if (!text) continue;
+    for (const segment of text.split(/[、,・\s]+/)) {
+      const hit = containsAny(segment, SELF_MADE_DRINK_KEYWORDS);
+      if (hit && !segment.includes(MARKET_BOUGHT_MARKER)) {
+        return hit;
+      }
+    }
+  }
+  return null;
 }
 
 // コーヒー・紅茶等をまとめて作り置きするのは不可（保健所確認済み）
@@ -166,16 +175,6 @@ function detectNonPlantWhipCream(texts) {
   const joined = [].concat(texts).filter(Boolean).join(' ');
   const hasCream = joined.includes('ホイップクリーム') || joined.includes('生クリーム');
   return hasCream && !joined.includes('植物性');
-}
-
-// 柑橘に限らない自家製シロップ全般（保健所確認済み）。「自家製」と「シロップ」が近接している
-// 場合のみヒットさせる（読点等を挟んで無関係な物同士が同一フィールド内で共起するケースの誤爆を防ぐ）
-// SELF_MADE_SYRUP_KEYWORDSは使わない（'自家調合'='自家調合のタレ'等、'コーディアル'='コーディアル風味クッキー'等、
-// シロップと無関係な文脈にも単独一致してしまうため。清涼飲料水の許可施設要求は別ロジックでカバーされる）
-const SELF_MADE_SYRUP_REGEX = /自家製[^。、\s]{0,15}シロップ/;
-function detectGeneralSelfMadeSyrup(texts) {
-  const list = Array.isArray(texts) ? texts : [texts];
-  return list.some((text) => text && SELF_MADE_SYRUP_REGEX.test(text));
 }
 
 // 「温める」等の弱い加熱表現は不可。クレープの文脈であれば専用メッセージを返す
@@ -274,20 +273,12 @@ function validateSubmission(d) {
         issues.push('ドリッパーは使い捨て以外は使用できません。（使い捨てドリッパーは30円で目黒マルシェで販売しています）。');
       }
 
-      // 生の柑橘（レモン等）をそのまま使う記載、または柑橘の自家製シロップは許可が通らない（複数あれば全部）
+      // 生の柑橘（レモン等）をそのまま使う記載は許可が通らない（複数あれば全部）。
+      // シロップとしての自家製／市販の扱いは drinkPermitFacility の統一ルールで別途判定する
       const citrusIssues = detectCitrusIssues([d.foodName, ...ingredients, d.cookingMethodOther]);
       citrusIssues.forEach((ci) => {
-        if (ci.type === 'raw') {
-          issues.push(`「${ci.fruit}」は許可が通らないことが多いので、別のものを記載お願いします。`);
-        } else if (ci.type === 'selfmade_syrup') {
-          issues.push(`「${ci.fruit}」などの自家製シロップは許可が通らないので、以下のように記載します：市販のシロップを炭酸で割る`);
-        }
+        issues.push(`「${ci.fruit}」は許可が通らないことが多いので、別のものを記載お願いします。`);
       });
-
-      // 柑橘に限らず、自家製シロップ・自家調合全般は許可が通らない（保健所確認済み）
-      if (citrusIssues.length === 0 && detectGeneralSelfMadeSyrup([d.foodName, ...ingredients, d.cookingMethodOther])) {
-        issues.push('自家製シロップは通らないことが多いです。許可をもらうため、「市販のシロップを使用」と記載お願いします。');
-      }
 
       if (issues.length > 0) {
         errors.ingredients = issues.join('\n');
@@ -373,11 +364,10 @@ function validateSubmission(d) {
     // シロップ等を炭酸水・水で割るドリンクは、購入品でも自家製造でも清涼飲料水製造業の許可施設の記入が必要
     // （材料欄の指摘で既にエラー確定していれば errors.ingredients が立っているのでここは自然にスキップされる）
     if (!errors.ingredients && !errors.cookingMethodOther) {
-      const drinkText = [d.foodName, ...(d.ingredients || []), d.cookingMethodOther].filter(Boolean).join(' ');
-      const drinkHit = containsAny(drinkText, SELF_MADE_DRINK_KEYWORDS);
+      const drinkHit = detectDrinkPermitNeeded([d.foodName, ...(d.ingredients || []), d.cookingMethodOther]);
       if (drinkHit) {
         if (isBlank(d.drinkPermitFacilityName) || isBlank(d.drinkPermitFacilityAddress)) {
-          errors.drinkPermitFacility = `「${drinkHit}」を使う場合、清涼飲料水製造業の許可施設の名称と住所を記入してください。`;
+          errors.drinkPermitFacility = '自家製シロップは通らないことが多いです。清涼飲料水製造許可のある施設でない場合、許可をもらうため、「市販のシロップを使用」と記載お願いします。施設をお持ちの場合は施設の名称と住所を記入してください。';
         }
       }
     }
@@ -454,10 +444,8 @@ async function aiSemanticCheck(d) {
 - ご飯類（ご飯・白米・ライス・おにぎり・カレーライス）をその場でよそう提供の指摘
 - 茹でる調理（大量の水）
 - 購入先の空欄・海外住所
-- 自家調合ドリンク（シロップ・コーディアル系）の清涼飲料水製造業許可の指摘（drinkPermitFacilityName・drinkPermitFacilityAddressに記入があれば、許可施設の記載要件は既に満たされているので指摘不要）
+- シロップ・果汁・コーディアル系ドリンク（柑橘の自家製シロップ含む）の清涼飲料水製造業許可の指摘（drinkPermitFacilityName・drinkPermitFacilityAddressに記入がある、または材料欄等に「市販」と明記されていれば、許可施設の記載要件は既に満たされているので指摘不要）
 - 生のレモン・ライム等をドリンクにそのまま使う点の指摘
-- 柑橘の自家製シロップ（自家製シロップ・自家調合等）が許可が通らない点の指摘
-- 自家製シロップ全般（柑橘に限らない）が許可が通らない点の指摘
 - コーヒー・紅茶等をまとめて作り置きする点の指摘（市販ティーバッグ・ドリップバッグへの変更）
 - コーヒーのドリッパーが使い捨てでない点の指摘
 - 「温める」「あたためる」という言葉自体が使用不可な点の指摘
