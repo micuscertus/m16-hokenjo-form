@@ -501,6 +501,20 @@ function validateSubmission(d) {
   return errors;
 }
 
+// フォーム内部のコード値（例：cookingMethod="boil"）をそのままAIに渡すと、
+// 英単語の意味（boil=茹でる）につられて誤判定することがある（実際に「boil」を
+// 「食材と水を鍋で煮る」の意味で使っているのに「茹でる」と誤解された事例あり）。
+// PDF表示と同じ日本語ラベルに変換してからAIに渡すことで、この種の誤判定を防ぐ
+// 「その他」（コード値"other"）はラベル対応表に存在しないため、PDF生成と同じく
+// 自由記述欄の中身にフォールバックする（それも空ならコード値のまま残す）
+function humanizeSubmission(d) {
+  const h = { ...d };
+  if (d.cookingMethod) h.cookingMethod = COOKING_METHOD_LABELS[d.cookingMethod] || d.cookingMethodOther || d.cookingMethod;
+  if (d.storage) h.storage = STORAGE_LABELS[d.storage] || d.storageOther || d.storage;
+  if (Array.isArray(d.serveMethod)) h.serveMethod = d.serveMethod.map((m) => SERVE_METHOD_LABELS[m] || d.serveMethodOther || m);
+  return h;
+}
+
 // ===== AI意味チェック（構造では防げない食品衛生の妥当性判断） =====
 async function aiSemanticCheck(d) {
   const systemPrompt = `あなたは目黒マルシェの「臨時出店届」の内容を確認する担当者です。
@@ -510,7 +524,7 @@ async function aiSemanticCheck(d) {
 - 業態区分の二重選択
 - 禁止材料（牛乳）の使用
 - ご飯類（ご飯・白米・ライス・おにぎり・カレーライス）をその場でよそう提供の指摘
-- 茹でる調理（大量の水）
+- 現場の調理方法・その他調理方法欄での「茹でる」（大量の水を使う調理）の指摘（仕込み内容欄は許可施設で行う前提のため対象外。仕込み内容欄に「茹でる」とあっても指摘不要）
 - 購入先の空欄・海外住所
 - シロップ・果汁・コーディアル系ドリンク（柑橘の自家製シロップ含む）の清涼飲料水製造業許可の指摘（drinkPermitFacilityName・drinkPermitFacilityAddressに記入がある、または材料欄等に「市販」と明記されていれば、許可施設の記載要件は既に満たされているので指摘不要）
 - 生のレモン・ライム等をドリンクにそのまま使う点の指摘
@@ -548,7 +562,7 @@ async function aiSemanticCheck(d) {
     max_tokens: 1500,
     system: systemPrompt,
     messages: [
-      { role: 'user', content: `以下の入力内容を確認してください。\n\n${JSON.stringify(d, null, 2)}` },
+      { role: 'user', content: `以下の入力内容を確認してください。\n\n${JSON.stringify(humanizeSubmission(d), null, 2)}` },
     ],
   });
 
