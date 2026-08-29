@@ -761,18 +761,25 @@ async function renderSubmissionPdfBuffer(d, dateText) {
       '{{材料1}}': ingredients[0] || '',
       '{{材料2}}': ingredients[1] || '',
       '{{材料3}}': ingredients[2] || '',
+      '{{購入先区分}}': d.ingredientSourceType === 'selfmade'
+        ? '□  A 購入先アリ ☑  B 許可のある施設で製造'
+        : '☑  A 購入先アリ □  B 許可のある施設で製造',
       '{{購入先名前}}': !isBlank(d.drinkPermitFacilityName)
         ? d.drinkPermitFacilityName
         : d.ingredientSourceType === 'selfmade' ? '自社（保健所許可施設で製造）' : d.ingredientSourceName,
       '{{購入先住所}}': !isBlank(d.drinkPermitFacilityAddress)
         ? d.drinkPermitFacilityAddress
         : d.ingredientSourceType === 'selfmade' ? '' : d.ingredientSourceAddress,
+      '{{仕込み区分}}': d.prep === 'onsite'
+        ? '□  なし ☑  許可のある施設で当日仕込み'
+        : '☑  なし □  許可のある施設で当日仕込み',
       '{{仕込先名前}}': d.prep === 'onsite' ? d.prepFacilityName : '',
       '{{仕込先住所}}': d.prep === 'onsite' ? d.prepFacilityAddress : '',
       '{{仕込み内容}}': d.prep === 'onsite' ? d.prepDetail : 'なし',
       '{{調理方法}}': COOKING_METHOD_LABELS[d.cookingMethod] || d.cookingMethodOther || '',
       '{{保存方法}}': STORAGE_LABELS[d.storage] || d.storageOther || '',
       '{{提供方法}}': (d.serveMethod || []).map((m) => SERVE_METHOD_LABELS[m] || d.serveMethodOther).join('、'),
+      '{{物販仕入区分}}': '□  A 購入 □  B 許可のある施設で製造したものを販売',
       '{{物販仕入先名前}}': '',
       '{{物販仕入先住所}}': '',
       '{{物販販売方法}}': '',
@@ -783,14 +790,19 @@ async function renderSubmissionPdfBuffer(d, dateText) {
       '{{材料1}}': '',
       '{{材料2}}': '',
       '{{材料3}}': '',
+      '{{購入先区分}}': '□  A 購入先アリ □  B 許可のある施設で製造',
       '{{購入先名前}}': '',
       '{{購入先住所}}': '',
+      '{{仕込み区分}}': '□  なし □  許可のある施設で当日仕込み',
       '{{仕込先名前}}': '',
       '{{仕込先住所}}': '',
       '{{仕込み内容}}': '',
       '{{調理方法}}': '',
       '{{保存方法}}': '',
       '{{提供方法}}': '',
+      '{{物販仕入区分}}': d.selfMade === 'yes'
+        ? '□  A 購入 ☑  B 許可のある施設で製造したものを販売'
+        : '☑  A 購入 □  B 許可のある施設で製造したものを販売',
       '{{物販仕入先名前}}': d.selfMade === 'yes' ? d.facilityName : d.supplierName,
       '{{物販仕入先住所}}': d.selfMade === 'yes' ? d.facilityAddress : d.supplierAddress,
       '{{物販販売方法}}': d.packagingConfirmed ? '☑ 包装済み完成品を販売する(表示ラベルあり)' : '□ 包装済み完成品を販売する(表示ラベルあり)',
