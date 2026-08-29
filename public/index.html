@@ -451,14 +451,14 @@
         <div class="field" data-field="cookingMethod">
           <label>調理方法（主たるもの1つのみ）</label>
           <div class="ng-example">調理は1つしか許可が下りません。主となる調理を選んで下さい。<br>茹でる（大量の水を使う調理）は許可が通りません。煮るを選択して下さい。<br>温めるは通りません。加熱、煮る、焼く、蒸すなど滅菌できる言葉を書いてください。</div>
-          <div class="ng-example">加熱せず生のまま提供すること（切っただけ・盛っただけ等）はできません（保健所に確認済み）。「よそう」「カップに注ぐ」「その他」を選ぶ場合も、中身は加熱調理済みのものにしてください。</div>
+          <div class="ng-example">加熱せず生のまま提供すること（切っただけ・盛っただけ等）はできません（保健所に確認済み）。「よそう」「一杯ずつカップに抽出する」「その他」を選ぶ場合も、中身は加熱調理済みのものにしてください。</div>
           <div class="radio-group">
             <label class="radio-option"><input type="radio" name="cookingMethod" value="grill">焼く</label>
             <label class="radio-option"><input type="radio" name="cookingMethod" value="boil">煮る</label>
             <label class="radio-option"><input type="radio" name="cookingMethod" value="steam">蒸す</label>
             <label class="radio-option"><input type="radio" name="cookingMethod" value="fry">揚げる</label>
             <label class="radio-option"><input type="radio" name="cookingMethod" value="season">味付けする</label>
-            <label class="radio-option"><input type="radio" name="cookingMethod" value="pour">カップに注ぐ</label>
+            <label class="radio-option"><input type="radio" name="cookingMethod" value="pour">一杯ずつカップに抽出する</label>
             <label class="radio-option"><input type="radio" name="cookingMethod" value="plate">よそう（盛り付ける）</label>
             <label class="radio-option"><input type="radio" name="cookingMethod" value="other">その他</label>
           </div>
@@ -652,8 +652,9 @@
   const BOIL_WORD_REGEX = /茹で(る|て|た|ます|ない)/;
   const RAW_OR_HEAT_NEEDED_KEYWORDS = ['きゅうり', 'レタス', 'トマト', 'キャベツ', '水菜', 'パクチー', 'もやし', '生野菜', '生の野菜', '生の果物', '焼きそば', 'そば', 'うどん', 'ラーメン', 'パスタ', '麺', '豚肉', '鶏肉', '牛肉', 'ひき肉', '魚', 'エビ', 'イカ', 'タコ', '卵'];
   const HAM_CHEESE_KEYWORDS = ['ハム', 'チーズ'];
-  // 「お茶」は「お茶漬け」等に部分一致してしまうため含めない
-  const TEA_COFFEE_KEYWORDS = ['コーヒー', '珈琲', '紅茶'];
+  // 「お茶」は「お茶漬け」等に部分一致してしまうため含めない。紅茶と珈琲で案内文言を分けるため別リストで持つ
+  const TEA_KEYWORDS = ['紅茶'];
+  const COFFEE_KEYWORDS = ['コーヒー', '珈琲'];
   const SINGLE_SERVE_BAG_KEYWORDS = ['ティーバッグ', 'ドリップバッグ'];
   const CREPE_KEYWORD = 'クレープ';
 
@@ -708,12 +709,23 @@
     return null;
   }
 
+  // 紅茶か珈琲かで返り値を分け、案内文言を出し分ける（現状は紅茶側のみ具体化。珈琲は今後検討）
   function detectBulkBrewedDrink(foodName, ing1, ing2, ing3, cookingMethod, cookingOther) {
     const text = [foodName, ing1, ing2, ing3, cookingOther].filter(Boolean).join(' ');
-    const isTeaOrCoffee = containsAny(text, TEA_COFFEE_KEYWORDS);
     const hasSingleServeBag = containsAny(text, SINGLE_SERVE_BAG_KEYWORDS);
     const brewingMethod = cookingMethod === 'other' || cookingMethod === 'pour';
-    return Boolean(isTeaOrCoffee) && !hasSingleServeBag && brewingMethod;
+    if (hasSingleServeBag || !brewingMethod) return null;
+    if (containsAny(text, TEA_KEYWORDS)) return 'tea';
+    if (containsAny(text, COFFEE_KEYWORDS)) return 'coffee';
+    return null;
+  }
+
+  // 材料欄に何を書くべきか・調理方法で何を選ぶべきかまで具体的に示す（紅茶）。珈琲は暫定で汎用文言のまま
+  function bulkBrewedDrinkMessage(type) {
+    if (type === 'tea') {
+      return '茶葉の使用は許可がおりません。許可をもらうため、食材には「市販のティーバッグ」と記載して、下の調理方法は「一杯ずつカップに抽出する」を選択してください。';
+    }
+    return 'まとめて作り置きは許可がおりません。許可をもらうため、市販のバッグで一杯ずつ抽出すると記載してください。';
   }
 
   // コーヒー豆をその場で挽く（粉にする）のは不可
@@ -839,8 +851,11 @@
     if (!ingredientsError && cookingMethod !== 'other' && detectGroundOnSiteCoffee(foodName, ing1, ing2, ing3, cookingOther)) {
       ingredientsError = '豆をその場で粉にすることを記載すると通りません。';
     }
-    if (!ingredientsError && cookingMethod !== 'other' && detectBulkBrewedDrink(foodName, ing1, ing2, ing3, cookingMethod, cookingOther)) {
-      ingredientsError = 'まとめて作り置きは許可がおりません。許可をもらうため、市販のバッグで一杯ずつ抽出すると記載してください。';
+    if (!ingredientsError && cookingMethod !== 'other') {
+      const bulkBrewType = detectBulkBrewedDrink(foodName, ing1, ing2, ing3, cookingMethod, cookingOther);
+      if (bulkBrewType) {
+        ingredientsError = bulkBrewedDrinkMessage(bulkBrewType);
+      }
     }
 
     setError('ingredients', ingredientsError);
@@ -900,9 +915,10 @@
         setError('cookingMethodOther', '豆をその場で粉にすることを記載すると通りません。');
         return;
       }
-      if (other && detectBulkBrewedDrink(foodName, ing1, ing2, ing3, selected, other)) {
+      const bulkBrewType = detectBulkBrewedDrink(foodName, ing1, ing2, ing3, selected, other);
+      if (other && bulkBrewType) {
         // 実際の指摘文言「粉を入れて熱湯を注ぐ」等は曖昧チェックにも該当する短さのため、より具体的なこちらを優先する
-        setError('cookingMethodOther', 'まとめて作り置きは許可がおりません。許可をもらうため、市販のバッグで一杯ずつ抽出すると記載してください。');
+        setError('cookingMethodOther', bulkBrewedDrinkMessage(bulkBrewType));
         return;
       }
       const vague = containsAny(other, VAGUE_COOKING_PHRASES);

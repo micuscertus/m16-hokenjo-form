@@ -21,7 +21,7 @@ const { google } = require('googleapis');
 // フォームの内部コードをPDF・表示用の日本語ラベルに変換する対応表
 const COOKING_METHOD_LABELS = {
   grill: '焼く', boil: '煮る', steam: '蒸す', fry: '揚げる',
-  season: '味付けする', pour: 'カップに注ぐ', plate: 'よそう（盛り付ける）',
+  season: '味付けする', pour: '一杯ずつカップに抽出する', plate: 'よそう（盛り付ける）',
 };
 const STORAGE_LABELS = { normal: '常温', cold: '冷蔵（クーラーBOX等）', frozen: '冷凍' };
 const SERVE_METHOD_LABELS = { disposable: '使い捨て容器にて提供', cup: '使い捨てカップにて提供' };
@@ -60,8 +60,9 @@ const DRY_SAFE_KEYWORDS = ['乾麺', '乾き物', '乾物', 'せんべい', 'ク
 // ハム・チーズは許可が通らない（保健所確認済み）
 const HAM_CHEESE_KEYWORDS = ['ハム', 'チーズ'];
 // コーヒー・紅茶等、まとめて作り置きせず一杯ずつ抽出する必要があるドリンク（保健所確認済み）
-// 「お茶」は「お茶漬け」等に部分一致してしまうため含めない
-const TEA_COFFEE_KEYWORDS = ['コーヒー', '珈琲', '紅茶'];
+// 「お茶」は「お茶漬け」等に部分一致してしまうため含めない。紅茶と珈琲で案内文言を分けるため別リストで持つ
+const TEA_KEYWORDS = ['紅茶'];
+const COFFEE_KEYWORDS = ['コーヒー', '珈琲'];
 const SINGLE_SERVE_BAG_KEYWORDS = ['ティーバッグ', 'ドリップバッグ'];
 // クレープは現地で焼く必要がある（保健所確認済み：前日仕込み・温め提供は不可）
 const CREPE_KEYWORD = 'クレープ';
@@ -132,13 +133,24 @@ function detectDrinkPermitNeeded(texts) {
 }
 
 // コーヒー・紅茶等をまとめて作り置きするのは不可（保健所確認済み）
-// 市販のティーバッグ・ドリップバッグで一杯ずつ抽出する形への変更が必要
+// 市販のティーバッグ・ドリップバッグで一杯ずつ抽出する形への変更が必要。
+// 紅茶か珈琲かで返り値を分け、案内文言を出し分ける（現状は紅茶側のみ具体化。珈琲は今後検討）
 function detectBulkBrewedDrink(d) {
   const text = [d.foodName, ...(d.ingredients || []), d.cookingMethodOther].filter(Boolean).join(' ');
-  const isTeaOrCoffee = containsAny(text, TEA_COFFEE_KEYWORDS);
   const hasSingleServeBag = containsAny(text, SINGLE_SERVE_BAG_KEYWORDS);
   const brewingMethod = d.cookingMethod === 'other' || d.cookingMethod === 'pour';
-  return Boolean(isTeaOrCoffee) && !hasSingleServeBag && brewingMethod;
+  if (hasSingleServeBag || !brewingMethod) return null;
+  if (containsAny(text, TEA_KEYWORDS)) return 'tea';
+  if (containsAny(text, COFFEE_KEYWORDS)) return 'coffee';
+  return null;
+}
+
+// 材料欄に何を書くべきか・調理方法で何を選ぶべきかまで具体的に示す（紅茶）。珈琲は暫定で汎用文言のまま
+function bulkBrewedDrinkMessage(type) {
+  if (type === 'tea') {
+    return '茶葉の使用は許可がおりません。許可をもらうため、食材には「市販のティーバッグ」と記載して、下の調理方法は「一杯ずつカップに抽出する」を選択してください。';
+  }
+  return 'まとめて作り置きは許可がおりません。許可をもらうため、市販のバッグで一杯ずつ抽出すると記載してください。';
 }
 
 // コーヒー豆をその場で挽く（粉にする）のは不可（保健所確認済み）
@@ -335,7 +347,7 @@ function validateSubmission(d) {
         errors.cookingMethodOther = '豆をその場で粉にすることを記載すると通りません。';
       } else if (detectBulkBrewedDrink(d)) {
         // 豆から挽いて熱湯を注ぐ系の短い記述は曖昧チェックにも該当するため、より具体的なこちらを優先する
-        errors.cookingMethodOther = 'まとめて作り置きは許可がおりません。許可をもらうため、市販のバッグで一杯ずつ抽出すると記載してください。';
+        errors.cookingMethodOther = bulkBrewedDrinkMessage(detectBulkBrewedDrink(d));
       } else {
         const vague = containsAny(d.cookingMethodOther, VAGUE_COOKING_PHRASES);
         if (vague && d.cookingMethodOther.trim().length < 12) {
@@ -379,7 +391,7 @@ function validateSubmission(d) {
 
     // コーヒー・紅茶等をまとめて作り置きするのは許可が通らない（cookingMethod='pour'等、その他欄を使わないケース）
     if (!errors.ingredients && !errors.cookingMethodOther && detectBulkBrewedDrink(d)) {
-      errors.ingredients = 'まとめて作り置きは許可がおりません。許可をもらうため、市販のバッグで一杯ずつ抽出すると記載してください。';
+      errors.ingredients = bulkBrewedDrinkMessage(detectBulkBrewedDrink(d));
     }
 
     // 生のまま提供されやすい／加熱が前提の食材なのに、実際に加熱する調理方法が選ばれていない
