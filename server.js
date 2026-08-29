@@ -56,7 +56,7 @@ const RAW_OR_HEAT_NEEDED_KEYWORDS = ['きゅうり', 'レタス', 'トマト', '
 // 実際に加熱する調理方法（これ以外は「加熱した」と見なさない）
 const HEAT_COOKING_METHODS = ['grill', 'boil', 'steam', 'fry'];
 // 常温保存でも問題ない食品（これに該当しなければ常温は警告対象）
-const DRY_SAFE_KEYWORDS = ['乾麺', '乾き物', '乾物', 'せんべい', 'クッキー', 'ビスケット', '飴', 'キャンディ', 'ポップコーン', 'スナック', 'ドライフルーツ', '焼き菓子', '駄菓子', 'チップス', 'ナッツ'];
+const DRY_SAFE_KEYWORDS = ['乾麺', '乾き物', '乾物', 'せんべい', 'クッキー', 'ビスケット', '飴', 'キャンディ', 'ポップコーン', 'スナック', 'ドライフルーツ', '焼き菓子', '駄菓子', 'チップス', 'ナッツ', 'コーヒー粉', 'ドリップパック', '茶葉', 'ティーバッグ'];
 // ハム・チーズは許可が通らない（保健所確認済み）
 const HAM_CHEESE_KEYWORDS = ['ハム', 'チーズ'];
 // コーヒー・紅茶等、まとめて作り置きせず一杯ずつ抽出する必要があるドリンク（保健所確認済み）
@@ -64,6 +64,8 @@ const HAM_CHEESE_KEYWORDS = ['ハム', 'チーズ'];
 const TEA_KEYWORDS = ['紅茶'];
 const COFFEE_KEYWORDS = ['コーヒー', '珈琲'];
 const SINGLE_SERVE_BAG_KEYWORDS = ['ティーバッグ', 'ドリップバッグ'];
+// コーヒー抽出は「使い捨てドリッパー」か「市販のカセット式ドリッパー」のどちらかが必要（保健所確認済み）
+const COFFEE_DRIPPER_KEYWORDS = ['使い捨てドリッパー', '市販のカセット式ドリッパー'];
 // クレープは現地で焼く必要がある（保健所確認済み：前日仕込み・温め提供は不可）
 const CREPE_KEYWORD = 'クレープ';
 
@@ -135,14 +137,20 @@ function detectDrinkPermitNeeded(texts) {
 // コーヒー・紅茶等をまとめて作り置きするのは不可（保健所確認済み）
 // 市販のティーバッグ・ドリップバッグで一杯ずつ抽出する形への変更が必要。
 // 紅茶か珈琲かで返り値を分け、案内文言を出し分ける（現状は紅茶側のみ具体化。珈琲は今後検討）
+// 先に紅茶か珈琲かを確定してから「一杯ずつ抽出」の証拠を判定する（コーヒー用のドリッパー語彙が
+// 紅茶側の判定まで打ち消してしまわないようにするため。逆に紅茶用のティーバッグ語彙はコーヒーにも
+// 使えるので珈琲側の証拠としても引き続き有効にする）
 function detectBulkBrewedDrink(d) {
   const text = [d.foodName, ...(d.ingredients || []), d.cookingMethodOther].filter(Boolean).join(' ');
-  const hasSingleServeBag = containsAny(text, SINGLE_SERVE_BAG_KEYWORDS);
   const brewingMethod = d.cookingMethod === 'other' || d.cookingMethod === 'pour';
-  if (hasSingleServeBag || !brewingMethod) return null;
-  if (containsAny(text, TEA_KEYWORDS)) return 'tea';
-  if (containsAny(text, COFFEE_KEYWORDS)) return 'coffee';
-  return null;
+  if (!brewingMethod) return null;
+  const isTea = Boolean(containsAny(text, TEA_KEYWORDS));
+  const isCoffee = Boolean(containsAny(text, COFFEE_KEYWORDS));
+  if (!isTea && !isCoffee) return null;
+  const hasSingleServeBag = Boolean(containsAny(text, SINGLE_SERVE_BAG_KEYWORDS));
+  const hasCoffeeDripper = isCoffee && Boolean(containsAny(text, COFFEE_DRIPPER_KEYWORDS));
+  if (hasSingleServeBag || hasCoffeeDripper) return null;
+  return isTea ? 'tea' : 'coffee';
 }
 
 // 材料欄に何を書くべきか・調理方法で何を選ぶべきかまで具体的に示す（紅茶）。珈琲は暫定で汎用文言のまま
@@ -151,6 +159,13 @@ function bulkBrewedDrinkMessage(type) {
     return '茶葉の使用は許可がおりません。許可をもらうため、食材には「市販のティーバッグ」と記載して、下の調理方法は「一杯ずつカップに抽出する」を選択してください。';
   }
   return 'まとめて作り置きは許可がおりません。許可をもらうため、市販のバッグで一杯ずつ抽出すると記載してください。';
+}
+
+// コーヒー関連ルールは全て「取扱食品名にコーヒー/珈琲/coffeeが含まれる」場合のみ適用する
+function isCoffeeFoodName(foodName) {
+  if (!foodName) return false;
+  if (foodName.includes('コーヒー') || foodName.includes('珈琲')) return true;
+  return /coffee/i.test(foodName);
 }
 
 // コーヒー豆をその場で挽く（粉にする）のは不可（保健所確認済み）
@@ -168,10 +183,23 @@ function detectGroundOnSiteCoffee(d) {
   return true;
 }
 
-// コーヒーのドリッパーは使い捨て以外は使用不可（保健所確認済み。使い捨てドリッパーは目黒マルシェで30円販売）
+// 材料欄に「豆」とだけ書く、または「珈琲豆」「コーヒー豆」と書くと通らない（保健所確認済み。
+// 「コーヒー粉」「ドリップパック」への変更が必要）。「豆乳」「黒豆」等の無関係な語への誤爆を避けるため、
+// 材料欄の中身がちょうど「豆」だけの場合か、上記の複合語を含む場合だけヒットさせる（部分一致の「豆」1文字では判定しない）
+function detectCoffeeBeanWording(ingredients) {
+  const list = Array.isArray(ingredients) ? ingredients : [ingredients];
+  return list.some((ing) => {
+    if (!ing) return false;
+    const trimmed = ing.trim();
+    return trimmed === '豆' || trimmed.includes('珈琲豆') || trimmed.includes('コーヒー豆');
+  });
+}
+
+// コーヒーのドリッパーは「使い捨て」か「カセット式」（市販の使い捨てカセット付き）以外は使用不可
+// （保健所確認済み。使い捨てドリッパーは目黒マルシェで30円販売）
 function detectNonDisposableDripper(texts) {
   const joined = [].concat(texts).filter(Boolean).join(' ');
-  return joined.includes('ドリッパー') && !joined.includes('使い捨て');
+  return joined.includes('ドリッパー') && !joined.includes('使い捨て') && !joined.includes('カセット式');
 }
 
 // ハム・チーズ、「具材」の曖昧記載、ホイップクリームの植物性明記漏れをチェック
@@ -282,7 +310,12 @@ function validateSubmission(d) {
         issues.push('ホイップクリームは許可をもらうため、「植物性ホイップクリーム」と記入してください。');
       }
       if (detectNonDisposableDripper(extendedFields)) {
-        issues.push('ドリッパーは使い捨て以外は使用できません。（使い捨てドリッパーは30円で目黒マルシェで販売しています）。');
+        issues.push('ドリッパーは「使い捨て」か「市販のカセット式」以外は使用できません。（使い捨てドリッパーは30円で目黒マルシェで販売しています）。');
+      }
+
+      // コーヒーの材料欄に「豆」とだけ書く、または「珈琲豆」「コーヒー豆」と書くと通らない
+      if (isCoffeeFoodName(d.foodName) && detectCoffeeBeanWording(ingredients)) {
+        issues.push('「豆」と書くと通らないので、材料欄には「コーヒー粉」「ドリップパック」などと記載してください。');
       }
 
       // 生の柑橘（レモン等）をそのまま使う記載は許可が通らない（複数あれば全部）。
@@ -459,7 +492,8 @@ async function aiSemanticCheck(d) {
 - シロップ・果汁・コーディアル系ドリンク（柑橘の自家製シロップ含む）の清涼飲料水製造業許可の指摘（drinkPermitFacilityName・drinkPermitFacilityAddressに記入がある、または材料欄等に「市販」と明記されていれば、許可施設の記載要件は既に満たされているので指摘不要）
 - 生のレモン・ライム等をドリンクにそのまま使う点の指摘
 - コーヒー・紅茶等をまとめて作り置きする点の指摘（市販ティーバッグ・ドリップバッグへの変更）
-- コーヒーのドリッパーが使い捨てでない点の指摘
+- コーヒーのドリッパーが「使い捨て」でも「カセット式」でもない点の指摘
+- コーヒーの材料欄に「豆」とだけ、または「珈琲豆」「コーヒー豆」と書かれている点の指摘（「コーヒー粉」「ドリップパック」への変更）
 - 「温める」「あたためる」という言葉自体が使用不可な点の指摘
 - 「具材」という曖昧な記載の指摘
 - ホイップクリームの植物性明記漏れの指摘
