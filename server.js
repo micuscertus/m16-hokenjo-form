@@ -41,6 +41,8 @@ const VAGUE_COOKING_PHRASES = ['熱湯を注ぐ'];
 // 「温める」「あたためる」は言葉自体が使用不可（保健所確認済み：滅菌できる強い加熱の言葉が必要）
 // 語幹＋活用語尾の組み合わせでマッチさせる（語幹だけだと「常温めんつゆ」のような無関係な語に誤爆するため）
 const WEAK_HEAT_REGEX = /(温め|あたため)(る|て|た|ます|ない)/;
+// 「茹でる」（大量の水を使う調理）は不可、「煮る」を選ぶよう案内する
+const BOIL_WORD_REGEX = /茹で(る|て|た|ます|ない)/;
 // 自家調合ドリンク（清涼飲料水製造業の許可が必要になるパターン）
 const SELF_MADE_DRINK_KEYWORDS = ['シロップ', 'コーディアル', '自家製ドリンク', '自家調合', '自家製シロップ'];
 // 生の柑橘をそのままドリンクに使うのは不可（保健所確認済み：市販シロップに置き換える必要がある）
@@ -78,25 +80,44 @@ function detectWeakHeatWord(text) {
   return m ? m[0] : null;
 }
 
+function detectBoilWord(text) {
+  if (!text) return null;
+  const m = text.match(BOIL_WORD_REGEX);
+  return m ? m[0] : null;
+}
+
 // 柑橘の記載を3パターンに分けて判定する。texts は個別のフィールドごとの配列で渡すこと
 // （結合してから判定すると、別欄の記載が判定を隠してしまう＝分割記載によるすり抜けを防ぐため）
+// 該当する分は全部集めて配列で返す（複数の柑橘・複数フィールドの問題を取りこぼさないため）
 // - raw: 生の柑橘をそのまま使う記載（シロップ・果汁のような加工表記がない）→ 使用不可
 // - selfmade_syrup: 柑橘＋自家製シロップ・自家調合等の記載 → 自家製自体が許可が通らない
-// - null: 該当なし（市販シロップ等、加工品として問題なし）
-function detectCitrusIssue(texts) {
+function detectCitrusIssues(texts) {
   const list = Array.isArray(texts) ? texts : [texts];
+  const results = [];
+  const seen = new Set();
   for (const text of list) {
     if (!text) continue;
     for (const k of RAW_CITRUS_DRINK_KEYWORDS) {
       if (!text.includes(k)) continue;
       const isProcessed = text.includes(`${k}シロップ`) || text.includes(`${k}果汁`);
-      if (!isProcessed) return { type: 'raw', fruit: k };
-      // 「自家製」等の判定は同一フィールド内の共起で見る（別欄の無関係な「自家製」に誤爆しないため）
-      const isSelfMade = text.includes('自家製') || containsAny(text, SELF_MADE_SYRUP_KEYWORDS);
-      if (isSelfMade) return { type: 'selfmade_syrup', fruit: k };
+      let type = null;
+      if (!isProcessed) {
+        type = 'raw';
+      } else {
+        // 「自家製」等の判定は同一フィールド内の共起で見る（別欄の無関係な「自家製」に誤爆しないため）
+        const isSelfMade = text.includes('自家製') || containsAny(text, SELF_MADE_SYRUP_KEYWORDS);
+        if (isSelfMade) type = 'selfmade_syrup';
+      }
+      if (type) {
+        const key = `${type}:${k}`;
+        if (!seen.has(key)) {
+          seen.add(key);
+          results.push({ type, fruit: k });
+        }
+      }
     }
   }
-  return null;
+  return results;
 }
 
 // コーヒー・紅茶等をまとめて作り置きするのは不可（保健所確認済み）
@@ -109,9 +130,32 @@ function detectBulkBrewedDrink(d) {
   return Boolean(isTeaOrCoffee) && !hasSingleServeBag && brewingMethod;
 }
 
+// コーヒー豆をその場で挽く（粉にする）のは不可（保健所確認済み）
+// 「事前に挽いてある」のような、既に挽いてある豆の状態を説明する言い方は誤検知しないよう
+// PRE_GROUND_KEYWORDSで明示的に除外する（活用形を正規表現で網羅するより誤りが少ないため）
+// キーワード方式なので完璧ではない（想定外の言い回しは拾いきれない）。判定に迷うケースはAIチェック側で拾う想定
+const GRIND_KEYWORDS = ['挽く', '挽いて', '挽き', '挽いた', '粉にする', '粉にして', '粉にした'];
+const PRE_GROUND_KEYWORDS = ['事前に', 'あらかじめ', '挽いてある', '粉にしてある', '挽いたもの', '挽き済み', '仕入れ'];
+function detectGroundOnSiteCoffee(d) {
+  const text = [d.foodName, ...(d.ingredients || []), d.cookingMethodOther].filter(Boolean).join(' ');
+  const isCoffee = text.includes('コーヒー') || text.includes('珈琲');
+  if (!isCoffee) return false;
+  if (!containsAny(text, GRIND_KEYWORDS)) return false;
+  if (containsAny(text, PRE_GROUND_KEYWORDS)) return false;
+  return true;
+}
+
+// コーヒーのドリッパーは使い捨て以外は使用不可（保健所確認済み。使い捨てドリッパーは目黒マルシェで30円販売）
+function detectNonDisposableDripper(texts) {
+  const joined = [].concat(texts).filter(Boolean).join(' ');
+  return joined.includes('ドリッパー') && !joined.includes('使い捨て');
+}
+
 // ハム・チーズ、「具材」の曖昧記載、ホイップクリームの植物性明記漏れをチェック
+// ハム・チーズ両方書かれているケースを取りこぼさないよう、該当する全キーワードを返す
 function detectHamCheese(texts) {
-  return containsAny([].concat(texts).filter(Boolean).join(' '), HAM_CHEESE_KEYWORDS);
+  const joined = [].concat(texts).filter(Boolean).join(' ');
+  return HAM_CHEESE_KEYWORDS.filter((k) => joined.includes(k));
 }
 function detectVagueFillingWord(texts) {
   return [].concat(texts).filter(Boolean).join(' ').includes('具材');
@@ -134,7 +178,7 @@ function detectGeneralSelfMadeSyrup(texts) {
 // 「温める」等の弱い加熱表現は不可。クレープの文脈であれば専用メッセージを返す
 function weakHeatWordMessage(hasCrepe) {
   if (hasCrepe) {
-    return 'クレープは許可が取りにくいです。「現地でクレープを焼き、具材を挟んで提供する」と記載してください。';
+    return 'クレープは許可が取りにくいです。「現地でクレープを焼き具材を挟む」と余計なことは書かずシンプルに記入してください。';
   }
   return '「温める」という言葉は使えません。加熱、煮る、焼く、蒸すなどの強く火が通る滅菌できる言葉を使ってください。';
 }
@@ -180,8 +224,8 @@ function validateSubmission(d) {
       errors.foodName = '取扱食品名は1品のみ記載してください。複数書くと許可が通りません。';
     } else {
       const hamCheeseInName = detectHamCheese(d.foodName);
-      if (hamCheeseInName) {
-        errors.foodName = `食品名に「${hamCheeseInName}」は使用できません。名称を変更してください。`;
+      if (hamCheeseInName.length > 0) {
+        errors.foodName = `食品名に「${hamCheeseInName.join('」「')}」は使用できません。名称を変更してください。`;
       }
     }
     if (isBlank(d.servingCount)) {
@@ -194,25 +238,49 @@ function validateSubmission(d) {
     if (ingredients.length === 0) {
       errors.ingredients = '使う食材を1つ以上入力してください。';
     } else {
+      // 材料欄に関する指摘は、最初に見つかった1件だけでなく該当する分をすべて集めて表示する
+      const issues = [];
+
+      const bannedHits = new Set();
       for (const ing of ingredients) {
         const banned = containsAny(ing, BANNED_INGREDIENT_KEYWORDS);
-        if (banned) {
-          errors.ingredients = `「${banned}」は臨時出店では使用できません。オーツミルク・豆乳など代替品に変更してください。`;
-          break;
-        }
+        if (banned) bannedHits.add(banned);
       }
-    }
+      bannedHits.forEach((b) => issues.push(`「${b}」は臨時出店では使用できません。オーツミルク・豆乳など代替品に変更してください。`));
 
-    if (!errors.ingredients) {
       // ingredients欄だけでなく、その他欄・仕込み内容にハム/チーズ等が書かれるケースも拾う
+      // 「具材」は仕込み内容側で専用チェックするので、ここでは仕込み内容を対象にしない
       const extendedFields = [...ingredients, d.cookingMethodOther, d.prepDetail];
-      const hamCheeseInIngredients = detectHamCheese(extendedFields);
-      if (hamCheeseInIngredients) {
-        errors.ingredients = `「${hamCheeseInIngredients}」は許可が通らないことが多いです。他の食材に変更してください。`;
-      } else if (detectVagueFillingWord(extendedFields)) {
-        errors.ingredients = '「具材」だけだと許可が通らないことが多いため、具体的な食材を2つほど記載してください。';
-      } else if (detectNonPlantWhipCream(extendedFields)) {
-        errors.ingredients = '「ホイップクリーム」を使う場合は、許可をもらうため植物性ホイップクリームと記載してください。';
+      if (detectHamCheese(extendedFields).length > 0) {
+        issues.push('「ハム」「チーズ」を記載すると通らないことが多いです。許可をもらうため、他の食材を記入してください。');
+      }
+      if (detectVagueFillingWord([...ingredients, d.cookingMethodOther])) {
+        issues.push('「具材」だけだと許可が通らないことが多いため、具体的な食材を2つほど記載してください。');
+      }
+      if (detectNonPlantWhipCream(extendedFields)) {
+        issues.push('ホイップクリームは許可をもらうため、「植物性ホイップクリームを使用」と記入してください。');
+      }
+      if (detectNonDisposableDripper(extendedFields)) {
+        issues.push('ドリッパーは使い捨て以外は使用できません。（使い捨てドリッパーは30円で目黒マルシェで販売しています）。');
+      }
+
+      // 生の柑橘（レモン等）をそのまま使う記載、または柑橘の自家製シロップは許可が通らない（複数あれば全部）
+      const citrusIssues = detectCitrusIssues([d.foodName, ...ingredients, d.cookingMethodOther]);
+      citrusIssues.forEach((ci) => {
+        if (ci.type === 'raw') {
+          issues.push(`「${ci.fruit}」は許可が通らないことが多いので、別のものを記載お願いします。`);
+        } else if (ci.type === 'selfmade_syrup') {
+          issues.push(`「${ci.fruit}」などの自家製シロップは許可が通らないので、以下のように記載します：市販のシロップを炭酸で割る`);
+        }
+      });
+
+      // 柑橘に限らず、自家製シロップ・自家調合全般は許可が通らない（保健所確認済み）
+      if (citrusIssues.length === 0 && detectGeneralSelfMadeSyrup([d.foodName, ...ingredients, d.cookingMethodOther])) {
+        issues.push('自家製シロップは通らないことが多いです。許可をもらうため、「市販のシロップを使用」と記載お願いします。');
+      }
+
+      if (issues.length > 0) {
+        errors.ingredients = issues.join('\n');
       }
     }
 
@@ -238,6 +306,10 @@ function validateSubmission(d) {
       }
       if (isBlank(d.prepDetail)) {
         errors.prepDetail = '当日仕込み内容を具体的に入力してください。';
+      } else if (detectVagueFillingWord(d.prepDetail)) {
+        errors.prepDetail = '「具材」だけだと許可が通らないことが多いため、具体的な食材を2つほど記載してください。';
+      } else if (detectBoilWord(d.prepDetail)) {
+        errors.prepDetail = '茹でる（大量の水を使う調理）は許可が通りません。「煮る」を選択してください。';
       } else {
         const weakHeat = detectWeakHeatWord(d.prepDetail);
         if (weakHeat) {
@@ -249,18 +321,20 @@ function validateSubmission(d) {
 
     if (!d.cookingMethod) {
       errors.cookingMethod = '調理方法を1つ選んでください（2種類以上は選べません）。';
-    } else if (d.cookingMethod === 'boil') {
-      errors.cookingMethod = '大量の水を使う調理（茹でる）は臨時出店の設備では認められません。他の調理方法に変更してください。';
     } else if (d.cookingMethod === 'other') {
       if (isBlank(d.cookingMethodOther)) {
         errors.cookingMethodOther = '「その他」を選んだ場合は具体的な調理方法を入力してください。';
+      } else if (detectBoilWord(d.cookingMethodOther)) {
+        errors.cookingMethodOther = '茹でる（大量の水を使う調理）は許可が通りません。「煮る」を選択してください。';
       } else if (detectWeakHeatWord(d.cookingMethodOther)) {
         // 「温める」系の言葉は曖昧チェックにも該当するが、こちらの方が具体的なので優先する
         const hasCrepe = [d.foodName, ...(d.ingredients || []), d.cookingMethodOther].filter(Boolean).join(' ').includes(CREPE_KEYWORD);
         errors.cookingMethodOther = weakHeatWordMessage(hasCrepe);
+      } else if (detectGroundOnSiteCoffee(d)) {
+        errors.cookingMethodOther = '豆をその場で粉にすることを記載すると通りません。';
       } else if (detectBulkBrewedDrink(d)) {
         // 豆から挽いて熱湯を注ぐ系の短い記述は曖昧チェックにも該当するため、より具体的なこちらを優先する
-        errors.cookingMethodOther = 'コーヒー・紅茶等をまとめて作り置きすることは許可が通りません。市販のティーバッグ・ドリップバッグで一杯ずつ抽出すると記載してください。';
+        errors.cookingMethodOther = 'まとめて作り置きは許可がおりません。許可をもらうため、市販のバッグで一杯ずつ抽出すると記載してください。';
       } else {
         const vague = containsAny(d.cookingMethodOther, VAGUE_COOKING_PHRASES);
         if (vague && d.cookingMethodOther.trim().length < 12) {
@@ -286,26 +360,8 @@ function validateSubmission(d) {
       errors.serveMethodOther = '「その他」を選んだ場合は提供方法を具体的に入力してください。';
     }
 
-    // 生の柑橘（レモン等）をそのまま使う記載、または柑橘の自家製シロップは許可が通らない
-    let citrusIssue = null;
-    if (!errors.ingredients) {
-      citrusIssue = detectCitrusIssue([d.foodName, ...(d.ingredients || []), d.cookingMethodOther]);
-      if (citrusIssue?.type === 'raw') {
-        errors.ingredients = `「${citrusIssue.fruit}」は許可が通らないことが多いので、別のものを記載お願いします。`;
-      } else if (citrusIssue?.type === 'selfmade_syrup') {
-        errors.ingredients = `「${citrusIssue.fruit}」などの自家製シロップは許可が通らないので、以下のように記載します：市販のシロップを炭酸で割る`;
-      }
-    }
-
-    // 柑橘に限らず、自家製シロップ・自家調合全般は許可が通らない（保健所確認済み）
-    if (!errors.ingredients) {
-      if (detectGeneralSelfMadeSyrup([d.foodName, ...(d.ingredients || []), d.cookingMethodOther])) {
-        errors.ingredients = '自家製シロップは通らないことが多いので、市販のシロップと記載お願いします。';
-      }
-    }
-
     // シロップ等を炭酸水・水で割るドリンクは、購入品でも自家製造でも清涼飲料水製造業の許可施設の記入が必要
-    // （citrusIssueで既にエラー確定していれば errors.ingredients が立っているのでここは自然にスキップされる）
+    // （材料欄の指摘で既にエラー確定していれば errors.ingredients が立っているのでここは自然にスキップされる）
     if (!errors.ingredients && !errors.cookingMethodOther) {
       const drinkText = [d.foodName, ...(d.ingredients || []), d.cookingMethodOther].filter(Boolean).join(' ');
       const drinkHit = containsAny(drinkText, SELF_MADE_DRINK_KEYWORDS);
@@ -316,9 +372,14 @@ function validateSubmission(d) {
       }
     }
 
+    // コーヒー豆をその場で挽くのは不可（cookingMethod='pour'等、その他欄を使わないケース）
+    if (!errors.ingredients && !errors.cookingMethodOther && detectGroundOnSiteCoffee(d)) {
+      errors.ingredients = '豆をその場で粉にすることを記載すると通りません。';
+    }
+
     // コーヒー・紅茶等をまとめて作り置きするのは許可が通らない（cookingMethod='pour'等、その他欄を使わないケース）
     if (!errors.ingredients && !errors.cookingMethodOther && detectBulkBrewedDrink(d)) {
-      errors.ingredients = 'コーヒー・紅茶等をまとめて作り置きすることは許可が通りません。市販のティーバッグ・ドリップバッグで一杯ずつ抽出すると記載してください。';
+      errors.ingredients = 'まとめて作り置きは許可がおりません。許可をもらうため、市販のバッグで一杯ずつ抽出すると記載してください。';
     }
 
     // 生のまま提供されやすい／加熱が前提の食材なのに、実際に加熱する調理方法が選ばれていない
@@ -326,7 +387,7 @@ function validateSubmission(d) {
       const rawText = [d.foodName, ...(d.ingredients || [])].filter(Boolean).join(' ');
       const rawHit = containsAny(rawText, RAW_OR_HEAT_NEEDED_KEYWORDS);
       if (rawHit && !HEAT_COOKING_METHODS.includes(d.cookingMethod)) {
-        errors.cookingMethod = `「${rawHit}」の使用は許可が通らないことが多いです。焼くことを記載するか、記載から省いてください。`;
+        errors.cookingMethod = '生野菜の使用は許可が通らないことが多いです。焼くことを記載するか、記載から省いてください。';
       }
     }
   }
@@ -387,6 +448,7 @@ async function aiSemanticCheck(d) {
 - 柑橘の自家製シロップ（自家製シロップ・自家調合等）が許可が通らない点の指摘
 - 自家製シロップ全般（柑橘に限らない）が許可が通らない点の指摘
 - コーヒー・紅茶等をまとめて作り置きする点の指摘（市販ティーバッグ・ドリップバッグへの変更）
+- コーヒーのドリッパーが使い捨てでない点の指摘
 - 「温める」「あたためる」という言葉自体が使用不可な点の指摘
 - 「具材」という曖昧な記載の指摘
 - ホイップクリームの植物性明記漏れの指摘
@@ -396,6 +458,7 @@ async function aiSemanticCheck(d) {
 - 食品名と調理方法が明らかに矛盾している（例：トーストと書いてあるのに調理方法が「蒸す」）
 - 材料欄と調理方法の説明が食い違っている
 - 冷凍食品を扱っているのに冷凍食品の表示に触れられていない
+- コーヒーを扱う場合、豆をその場（当日・会場）で挽く／粉にすることが読み取れる記載（キーワードだけでは判定しきれない曖昧な言い回しも含めて判断してください。仕入れ時点で挽いてある・市販の挽き豆を使う旨が明記されていれば問題ありません）
 - その他、明らかに保健所で差し戻されそうな矛盾
 
 海鮮・生野菜・生の果物など「要冷蔵の生食材」については、キーワードだけで機械的に禁止はしていません。以下の考え方で判断してください:
