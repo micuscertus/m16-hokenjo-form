@@ -35,7 +35,9 @@ const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 // 国内仕入れ先チェック用（簡易・完全ではない）
 const OVERSEAS_KEYWORDS = ['中国', 'アメリカ', 'USA', '韓国', '台湾', 'ベトナム', 'タイ', 'インド', 'フランス', 'イタリア', '海外'];
 // 使用不可の材料キーワード
-const BANNED_INGREDIENT_KEYWORDS = ['牛乳', '生乳', '白米'];
+const BANNED_INGREDIENT_KEYWORDS = ['牛乳', '生乳'];
+// ご飯類をその場でよそう提供は不可（保健所確認済み）。パック詰め販売かクスクス等への変更が必要
+const RICE_KEYWORDS = ['ご飯', '白米', 'ライス', 'おにぎり', 'カレーライス'];
 // 曖昧な調理表現
 const VAGUE_COOKING_PHRASES = ['熱湯を注ぐ'];
 // 「温める」「あたためる」は言葉自体が使用不可（保健所確認済み：滅菌できる強い加熱の言葉が必要）
@@ -162,7 +164,8 @@ function detectVagueFillingWord(texts) {
 }
 function detectNonPlantWhipCream(texts) {
   const joined = [].concat(texts).filter(Boolean).join(' ');
-  return joined.includes('ホイップクリーム') && !joined.includes('植物性');
+  const hasCream = joined.includes('ホイップクリーム') || joined.includes('生クリーム');
+  return hasCream && !joined.includes('植物性');
 }
 
 // 柑橘に限らない自家製シロップ全般（保健所確認済み）。「自家製」と「シロップ」が近接している
@@ -211,6 +214,8 @@ function validateSubmission(d) {
     errors.cumulativeDays = '本年度の累計出店日数を入力してください。';
   } else if (!/^[0-9]+$/.test(String(d.cumulativeDays).trim())) {
     errors.cumulativeDays = '累計出店日数は数字で入力してください。';
+  } else if (Number(d.cumulativeDays) < 1 || Number(d.cumulativeDays) > 5) {
+    errors.cumulativeDays = '目黒区の出店は５日までなのでその範囲で記載お願いします。';
   }
 
   if (d.businessType !== 'restaurant' && d.businessType !== 'retail') {
@@ -248,6 +253,11 @@ function validateSubmission(d) {
       }
       bannedHits.forEach((b) => issues.push(`「${b}」は臨時出店では使用できません。オーツミルク・豆乳など代替品に変更してください。`));
 
+      // ご飯類をその場でよそう提供は不可
+      if (containsAny([d.foodName, ...ingredients, d.cookingMethodOther].filter(Boolean).join(' '), RICE_KEYWORDS)) {
+        issues.push('ご飯をその場でよそるのは許可が下りません。パック詰めしたものを販売か、クスクスなどに変更して下さい。');
+      }
+
       // ingredients欄だけでなく、その他欄・仕込み内容にハム/チーズ等が書かれるケースも拾う
       // 「具材」は仕込み内容側で専用チェックするので、ここでは仕込み内容を対象にしない
       const extendedFields = [...ingredients, d.cookingMethodOther, d.prepDetail];
@@ -258,7 +268,7 @@ function validateSubmission(d) {
         issues.push('「具材」だけだと許可が通らないことが多いため、具体的な食材を2つほど記載してください。');
       }
       if (detectNonPlantWhipCream(extendedFields)) {
-        issues.push('ホイップクリームは許可をもらうため、「植物性ホイップクリームを使用」と記入してください。');
+        issues.push('ホイップクリームは許可をもらうため、「植物性ホイップクリーム」と記入してください。');
       }
       if (detectNonDisposableDripper(extendedFields)) {
         issues.push('ドリッパーは使い捨て以外は使用できません。（使い捨てドリッパーは30円で目黒マルシェで販売しています）。');
@@ -440,7 +450,8 @@ async function aiSemanticCheck(d) {
 以下はすでに機械的にチェック済みなので、指摘不要です:
 - 必須項目の空欄
 - 業態区分の二重選択
-- 禁止材料（牛乳・白米）の使用
+- 禁止材料（牛乳）の使用
+- ご飯類（ご飯・白米・ライス・おにぎり・カレーライス）をその場でよそう提供の指摘
 - 茹でる調理（大量の水）
 - 購入先の空欄・海外住所
 - 自家調合ドリンク（シロップ・コーディアル系）の清涼飲料水製造業許可の指摘（drinkPermitFacilityName・drinkPermitFacilityAddressに記入があれば、許可施設の記載要件は既に満たされているので指摘不要）

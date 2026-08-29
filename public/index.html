@@ -95,6 +95,7 @@
 
   input[type="text"],
   input[type="number"],
+  select,
   textarea {
     width: 100%;
     padding: 10px 12px;
@@ -105,14 +106,17 @@
     transition: border-color 0.2s;
   }
 
+  select { background: #fff; }
+
   textarea { resize: vertical; min-height: 60px; }
 
-  input:focus, textarea:focus {
+  input:focus, select:focus, textarea:focus {
     outline: none;
     border-color: var(--navy);
   }
 
   .field.has-error input,
+  .field.has-error select,
   .field.has-error textarea {
     border-color: #dc3545;
     background: #fff5f5;
@@ -302,7 +306,15 @@
 
       <div class="field" data-field="cumulativeDays">
         <label>本年度の累計出店日数（今回の出店日数を含む）</label>
-        <input type="number" id="cumulativeDays" placeholder="例：2">
+        <div class="help">目黒区の出店は５日までなのでその範囲で記載お願いします。</div>
+        <select id="cumulativeDays">
+          <option value="">選択してください</option>
+          <option value="1">1日</option>
+          <option value="2">2日</option>
+          <option value="3">3日</option>
+          <option value="4">4日</option>
+          <option value="5">5日</option>
+        </select>
         <div class="field-error"></div>
       </div>
     </div>
@@ -348,8 +360,8 @@
           <label>使う食材（できるだけ記載。3つに満たなくても構いません）</label>
           <div class="ng-example">
             <strong>使用不可の材料（許可が通りません）</strong><br>
-            ・白米<br>
             ・牛乳（オーツミルク・豆乳等に変更してください）<br><br>
+            <strong>ご飯・白米・ライス・おにぎり・カレーライス等をその場でよそう提供はできません。</strong>パック詰めしたものを販売するか、クスクスなどに変更してください。<br><br>
             <strong>生野菜を生のまま提供することはできません（保健所に確認済み。許可施設でカットしても、生のまま出すこと自体が不可）。</strong>必ず加熱調理する内容にしてください。加熱する場合以外は記載しないようお願いします。<br><br>
             <strong>生のレモン・ライム等をドリンクにそのまま使うことはできません。</strong>「市販のシロップを炭酸で割る」形に変更してください。
           </div>
@@ -612,7 +624,9 @@
   }
 
   // ===== 入力した瞬間に効く即時チェック（サーバー側の決定的チェックと同じ基準） =====
-  const BANNED_INGREDIENT_KEYWORDS = ['牛乳', '生乳', '白米'];
+  const BANNED_INGREDIENT_KEYWORDS = ['牛乳', '生乳'];
+  // ご飯類をその場でよそう提供は不可（保健所確認済み）。パック詰め販売かクスクス等への変更が必要
+  const RICE_KEYWORDS = ['ご飯', '白米', 'ライス', 'おにぎり', 'カレーライス'];
   const SELF_MADE_DRINK_KEYWORDS = ['シロップ', 'コーディアル', '自家製ドリンク', '自家調合', '自家製シロップ'];
   const RAW_CITRUS_DRINK_KEYWORDS = ['レモン', 'ライム', 'かぼす', 'すだち'];
   const SELF_MADE_SYRUP_KEYWORDS = ['自家製シロップ', '自家調合', '自家製ドリンク', 'コーディアル'];
@@ -717,7 +731,8 @@
   }
   function detectNonPlantWhipCream(texts) {
     const joined = [].concat(texts).filter(Boolean).join(' ');
-    return joined.includes('ホイップクリーム') && !joined.includes('植物性');
+    const hasCream = joined.includes('ホイップクリーム') || joined.includes('生クリーム');
+    return hasCream && !joined.includes('植物性');
   }
   function weakHeatWordMessage(hasCrepe) {
     if (hasCrepe) {
@@ -780,6 +795,10 @@
     }
     bannedHits.forEach((b) => issues.push(`「${b}」は臨時出店では使用できません。オーツミルク・豆乳など代替品に変更してください。`));
 
+    if (containsAny([foodName, ...ingList, cookingOther].filter(Boolean).join(' '), RICE_KEYWORDS)) {
+      issues.push('ご飯をその場でよそるのは許可が下りません。パック詰めしたものを販売か、クスクスなどに変更して下さい。');
+    }
+
     if (detectHamCheese(extendedFields).length > 0) {
       issues.push('「ハム」「チーズ」を記載すると通らないことが多いです。許可をもらうため、他の食材を記入してください。');
     }
@@ -788,7 +807,7 @@
       issues.push('「具材」だけだと許可が通らないことが多いため、具体的な食材を2つほど記載してください。');
     }
     if (detectNonPlantWhipCream(extendedFields)) {
-      issues.push('ホイップクリームは許可をもらうため、「植物性ホイップクリームを使用」と記入してください。');
+      issues.push('ホイップクリームは許可をもらうため、「植物性ホイップクリーム」と記入してください。');
     }
     if (detectNonDisposableDripper(extendedFields)) {
       issues.push('ドリッパーは使い捨て以外は使用できません。（使い捨てドリッパーは30円で目黒マルシェで販売しています）。');
@@ -1023,6 +1042,7 @@
   function resetFormOnLoad() {
     document.querySelectorAll('input[type="radio"], input[type="checkbox"]').forEach((el) => { el.checked = false; });
     document.querySelectorAll('input[type="text"], input[type="number"], textarea').forEach((el) => { el.value = ''; });
+    document.querySelectorAll('select').forEach((el) => { el.value = ''; });
     document.querySelectorAll('.sub-field').forEach((el) => el.classList.add('hidden'));
     restaurantSection.classList.add('hidden');
     retailSection.classList.add('hidden');
