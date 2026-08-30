@@ -776,8 +776,8 @@ async function renderSubmissionPdfBuffer(d, dateText) {
         ? d.drinkPermitFacilityAddress
         : d.ingredientSourceType === 'selfmade' ? '' : d.ingredientSourceAddress,
       '{{仕込み区分}}': d.prep === 'onsite'
-        ? '□  なし ☑  許可のある施設で当日仕込み'
-        : '☑  なし □  許可のある施設で当日仕込み',
+        ? '□  A なし ☑  B 許可のある施設で当日仕込み'
+        : '☑  A なし □  B 許可のある施設で当日仕込み',
       '{{仕込先名前}}': d.prep === 'onsite' ? d.prepFacilityName : '',
       '{{仕込先住所}}': d.prep === 'onsite' ? d.prepFacilityAddress : '',
       '{{仕込み内容}}': d.prep === 'onsite' ? d.prepDetail : 'なし',
@@ -799,7 +799,7 @@ async function renderSubmissionPdfBuffer(d, dateText) {
       '{{購入先区分}}': '□  A 購入先アリ □  B 許可のある施設で製造',
       '{{購入先名前}}': '',
       '{{購入先住所}}': '',
-      '{{仕込み区分}}': '□  なし □  許可のある施設で当日仕込み',
+      '{{仕込み区分}}': '□  A なし □  B 許可のある施設で当日仕込み',
       '{{仕込先名前}}': '',
       '{{仕込先住所}}': '',
       '{{仕込み内容}}': '',
@@ -811,7 +811,7 @@ async function renderSubmissionPdfBuffer(d, dateText) {
         : '☑  A 購入 □  B 許可のある施設で製造したものを販売',
       '{{物販仕入先名前}}': d.selfMade === 'yes' ? d.facilityName : d.supplierName,
       '{{物販仕入先住所}}': d.selfMade === 'yes' ? d.facilityAddress : d.supplierAddress,
-      '{{物販販売方法}}': d.packagingConfirmed ? '☑ 包装済み完成品を販売する(表示ラベルあり)' : '□ 包装済み完成品を販売する(表示ラベルあり)',
+      '{{物販販売方法}}': d.packagingConfirmed ? '☑ 包装済み完成品を販売する（表示ラベルあり）' : '□ 包装済み完成品を販売する（表示ラベルあり）',
       '{{物販冷凍表示}}': (d.isFrozen && d.frozenLabelConfirmed) ? '／☑冷凍食品である旨の表示あり' : '',
       '{{物販保存方法}}': STORAGE_LABELS[d.storage] || d.storageOther || '',
     });
