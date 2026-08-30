@@ -462,9 +462,9 @@ function validateSubmission(d) {
 
   if (d.businessType === 'retail') {
     if (isBlank(d.foodName)) {
-      errors.foodName = '取扱食品名を入力してください。';
+      errors.foodName_r = '取扱食品名を入力してください。';
     } else if (looksLikeMultipleItems(d.foodName)) {
-      errors.foodName = '取扱食品名は1品のみ記載してください。複数書くと許可が通りません。';
+      errors.foodName_r = '取扱食品名は1品のみ記載してください。複数書くと許可が通りません。';
     }
     if (isBlank(d.servingCount)) {
       errors.servingCount_r = '提供数を入力してください。';
@@ -497,9 +497,9 @@ function validateSubmission(d) {
       errors.frozenLabelConfirmed = '冷凍食品を扱う場合は「冷凍食品である旨の表示がある」ことを確認してチェックしてください。';
     }
 
-    if (!d.storage) errors.storage = '保存方法を選んでください。';
+    if (!d.storage) errors.storage_r = '保存方法を選んでください。';
     if (d.storage === 'other' && isBlank(d.storageOther)) {
-      errors.storageOther = '保存方法の「その他」の内容を入力してください。';
+      errors.storageOther_r = '保存方法の「その他」の内容を入力してください。';
     }
   }
 
@@ -788,6 +788,7 @@ async function renderSubmissionPdfBuffer(d, dateText) {
       '{{物販仕入先名前}}': '',
       '{{物販仕入先住所}}': '',
       '{{物販販売方法}}': '',
+      '{{物販冷凍表示}}': '',
       '{{物販保存方法}}': '',
     });
   } else {
@@ -811,6 +812,7 @@ async function renderSubmissionPdfBuffer(d, dateText) {
       '{{物販仕入先名前}}': d.selfMade === 'yes' ? d.facilityName : d.supplierName,
       '{{物販仕入先住所}}': d.selfMade === 'yes' ? d.facilityAddress : d.supplierAddress,
       '{{物販販売方法}}': d.packagingConfirmed ? '☑ 包装済み完成品を販売する(表示ラベルあり)' : '□ 包装済み完成品を販売する(表示ラベルあり)',
+      '{{物販冷凍表示}}': (d.isFrozen && d.frozenLabelConfirmed) ? '／☑冷凍食品である旨の表示あり' : '',
       '{{物販保存方法}}': STORAGE_LABELS[d.storage] || d.storageOther || '',
     });
   }
