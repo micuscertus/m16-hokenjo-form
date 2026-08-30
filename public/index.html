@@ -533,6 +533,12 @@
           <div class="field-error"></div>
         </div>
 
+        <div class="field" data-field="servingCount_r">
+          <label>提供数</label>
+          <input type="number" id="servingCountRetail" placeholder="例：50">
+          <div class="field-error"></div>
+        </div>
+
         <div class="field" data-field="supplierName">
           <label>仕入先の名前</label>
           <input type="text" id="supplierName" placeholder="例：マルニャン物産">
@@ -1199,6 +1205,7 @@
       d.serveMethodOther = document.getElementById('serveMethodOther').value.trim();
     } else if (businessType === 'retail') {
       d.foodName = document.getElementById('foodNameRetail').value.trim();
+      d.servingCount = document.getElementById('servingCountRetail').value.trim();
       d.supplierName = document.getElementById('supplierName').value.trim();
       d.selfMade = document.querySelector('input[name="selfMade"]:checked')?.value || null;
       d.facilityName = document.getElementById('facilityName').value.trim();

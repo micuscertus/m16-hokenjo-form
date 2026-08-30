@@ -466,6 +466,11 @@ function validateSubmission(d) {
     } else if (looksLikeMultipleItems(d.foodName)) {
       errors.foodName = '取扱食品名は1品のみ記載してください。複数書くと許可が通りません。';
     }
+    if (isBlank(d.servingCount)) {
+      errors.servingCount_r = '提供数を入力してください。';
+    } else if (!/^[0-9]+$/.test(String(d.servingCount).trim())) {
+      errors.servingCount_r = '提供数は数字で入力してください。';
+    }
     if (isBlank(d.supplierName)) errors.supplierName = '仕入先の名前を入力してください。';
 
     if (d.selfMade !== 'yes' && d.selfMade !== 'no') {
@@ -750,7 +755,7 @@ async function renderSubmissionPdfBuffer(d, dateText) {
     '{{氏名}}': d.personName,
     '{{電話番号}}': d.phone,
     '{{取扱食品}}': d.foodName,
-    '{{提供数}}': isRestaurant ? d.servingCount : '',
+    '{{提供数}}': d.servingCount || '',
     '{{累計出店日数}}': d.cumulativeDays,
     '{{提出日}}': dateText || '',
     '{{確認日}}': dateText || '',
