@@ -841,7 +841,7 @@
     return '「温める」という言葉は使えません。加熱、煮る、焼く、蒸すなどの強く火が通る滅菌できる言葉を使ってください。';
   }
   const HEAT_COOKING_METHODS = ['grill', 'boil', 'steam', 'fry'];
-  const DRY_SAFE_KEYWORDS = ['乾麺', '乾き物', '乾物', 'せんべい', 'クッキー', 'ビスケット', '飴', 'キャンディ', 'ポップコーン', 'スナック', 'ドライフルーツ', '焼き菓子', '駄菓子', 'チップス', 'ナッツ', 'コーヒー粉', 'ドリップパック', '茶葉', 'ティーバッグ'];
+  const DRY_SAFE_KEYWORDS = ['乾麺', '乾き物', '乾物', 'せんべい', 'クッキー', 'ビスケット', '飴', 'キャンディ', 'ポップコーン', 'スナック', 'ドライフルーツ', '焼き菓子', '駄菓子', 'チップス', 'ナッツ', 'コーヒー粉', 'ドリップパック', '茶葉', 'お茶の葉', '紅茶葉', 'ティーバッグ'];
 
   function containsAny(text, keywords) {
     if (!text) return null;
@@ -1077,6 +1077,13 @@
     if (detectNonDisposableDripper(detail)) {
       setError('prepDetail', 'ドリッパーは「使い捨て」か「市販のカセット式」以外は使用できません。（使い捨てドリッパーは30円で目黒マルシェで販売しています）。');
       return;
+    }
+    {
+      const { foodName, ing1, ing2, ing3 } = getFoodNameAndIngredients();
+      if (detectGroundOnSiteCoffee(foodName, ing1, ing2, ing3, detail)) {
+        setError('prepDetail', '豆をその場で粉にすることを記載すると通りません。');
+        return;
+      }
     }
     // 茹でる禁止は現場（出店ブース）の設備制約が理由なので、許可施設で行う仕込みには適用しない
     const weakHeat = detectWeakHeatWord(detail);
