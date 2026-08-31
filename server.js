@@ -77,8 +77,8 @@ const DRY_SAFE_KEYWORDS = ['乾麺', '乾き物', '乾物', 'せんべい', 'ク
 // ハム・チーズは許可が通らない（保健所確認済み）
 const HAM_CHEESE_KEYWORDS = ['ハム', 'チーズ'];
 // コーヒー・紅茶等、まとめて作り置きせず一杯ずつ抽出する必要があるドリンク（保健所確認済み）
-// 「お茶」は「お茶漬け」等に部分一致してしまうため含めない。紅茶と珈琲で案内文言を分けるため別リストで持つ
-const TEA_KEYWORDS = ['紅茶'];
+// 紅茶と珈琲で案内文言を分けるため別リストで持つ
+const TEA_KEYWORDS = ['紅茶', '茶葉'];
 const COFFEE_KEYWORDS = ['コーヒー', '珈琲'];
 const SINGLE_SERVE_BAG_KEYWORDS = ['ティーバッグ', 'ドリップバッグ'];
 // コーヒー抽出は「使い捨てドリッパー」か「市販のカセット式ドリッパー」のどちらかが必要（保健所確認済み）
@@ -153,6 +153,13 @@ function detectDrinkPermitNeeded(texts) {
   return null;
 }
 
+// 「ポット」でまとめて抽出する記載は、ティーバッグ等の単杯抽出手段を使っていても、
+// まとめ作りである点自体が不可（保健所確認済み）。単杯抽出の証拠（ティーバッグ等）の
+// 有無に関わらず、この語が出た時点で常に指摘する
+function detectPotBrewing(cookingMethodOther) {
+  return Boolean(cookingMethodOther && cookingMethodOther.includes('ポット'));
+}
+
 // コーヒー・紅茶等をまとめて作り置きするのは不可（保健所確認済み）
 // 市販のティーバッグ・ドリップバッグで一杯ずつ抽出する形への変更が必要。
 // 紅茶か珈琲かで返り値を分け、案内文言を出し分ける（現状は紅茶側のみ具体化。珈琲は今後検討）
@@ -180,7 +187,7 @@ function detectBulkBrewedDrink(d) {
 // 材料欄に何を書くべきか・調理方法で何を選ぶべきかまで具体的に示す（紅茶）。珈琲は暫定で汎用文言のまま
 function bulkBrewedDrinkMessage(type) {
   if (type === 'tea') {
-    return '茶葉の使用は許可がおりません。許可をもらうため、食材には「市販のティーバッグ」と記載して、調理方法は「市販のティーバッグで一杯ずつ抽出する」を選択してください。';
+    return 'ティーバッグ以外は許可が通らない可能性が高いです。ティーバッグに変更して記載してください。';
   }
   return 'まとめて作り置きは許可がおりません。許可をもらうため、調理方法で「使い捨てドリッパーで一杯ずつ抽出する」を選択してください。';
 }
@@ -448,6 +455,8 @@ function validateSubmission(d) {
         errors.cookingMethodOther = weakHeatWordMessage(hasCrepe);
       } else if (detectGroundOnSiteCoffee([d.foodName, ...(d.ingredients || []), d.cookingMethodOther])) {
         errors.cookingMethodOther = '豆をその場で粉にすることを記載すると通りません。';
+      } else if (detectPotBrewing(d.cookingMethodOther)) {
+        errors.cookingMethodOther = 'ポットのまとめ作りは通らない可能性が高いです。1杯ずつ提供するに変えてください。';
       } else if (detectBulkBrewedDrink(d)) {
         // 豆から挽いて熱湯を注ぐ系の短い記述は曖昧チェックにも該当するため、より具体的なこちらを優先する
         errors.cookingMethodOther = bulkBrewedDrinkMessage(detectBulkBrewedDrink(d));
