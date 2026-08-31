@@ -74,7 +74,13 @@ function rawFoodMessage(text) {
 // 実際に加熱する調理方法（これ以外は「加熱した」と見なさない）
 const HEAT_COOKING_METHODS = ['grill', 'boil', 'steam', 'fry'];
 // 調理方法「その他」の自由記述が実質的に加熱調理と読み取れるかの判定に使う言葉
-const HEAT_WORD_KEYWORDS = ['加熱', '焼く', '焼いて', '焼いた', '煮る', '煮て', '煮た', '蒸す', '蒸して', '蒸した', '揚げる', '揚げて', '揚げた'];
+const HEAT_WORD_KEYWORDS = [
+  '加熱',
+  '焼く', '焼いて', '焼いた', '焼き直し', '焼き直す', '焼き直して', '焼き直した',
+  '煮る', '煮て', '煮た', '煮直し', '煮直す', '煮直して', '煮直した',
+  '蒸す', '蒸して', '蒸した', '蒸し直し', '蒸し直す', '蒸し直して', '蒸し直した',
+  '揚げる', '揚げて', '揚げた', '揚げ直し', '揚げ直す', '揚げ直して', '揚げ直した',
+];
 // 常温保存でも問題ない食品（これに該当しなければ常温は警告対象）
 const DRY_SAFE_KEYWORDS = ['乾麺', '乾き物', '乾物', 'せんべい', 'クッキー', 'ビスケット', '飴', 'キャンディ', 'ポップコーン', 'スナック', 'ドライフルーツ', '焼き菓子', '駄菓子', 'チップス', 'ナッツ', 'コーヒー粉', 'ドリップパック', '茶葉', 'ティーバッグ'];
 // ハム・チーズは許可が通らない（保健所確認済み）
@@ -517,10 +523,22 @@ function humanizeSubmission(d) {
   if (d.cookingMethod) h.cookingMethod = COOKING_METHOD_LABELS[d.cookingMethod] || d.cookingMethodOther || d.cookingMethod;
   if (d.storage) h.storage = STORAGE_LABELS[d.storage] || d.storageOther || d.storage;
   if (Array.isArray(d.serveMethod)) h.serveMethod = d.serveMethod.map((m) => SERVE_METHOD_LABELS[m] || d.serveMethodOther || m);
+  if (d.businessType) h.businessType = d.businessType === 'restaurant' ? '飲食店' : d.businessType === 'retail' ? '食品物販' : d.businessType;
+  if (d.ingredientSourceType) {
+    h.ingredientSourceType = d.ingredientSourceType === 'selfmade'
+      ? '保健所許可のある場所で自家製造する'
+      : d.ingredientSourceType === 'purchase' ? '購入する' : d.ingredientSourceType;
+  }
+  if (d.prep) h.prep = d.prep === 'onsite' ? '保健所許可のある施設（またはシェアキッチン等）で当日仕込みあり' : d.prep === 'none' ? '仕込みなし' : d.prep;
+  if (d.selfMade) h.selfMade = d.selfMade === 'yes' ? '保健所許可のある場所で自家製造したものを販売する' : d.selfMade === 'no' ? '購入する' : d.selfMade;
   return h;
 }
 
 // ===== AI意味チェック（構造では防げない食品衛生の妥当性判断） =====
+// 「同上」不要ルールと「加熱する等を温めるとみなさない」ルールは、実際の主催者が
+// 本番直前の最終テストで遭遇した誤指摘（仕込み先住所の「同上」記載を誤読、
+// フォーム自身が推奨する「加熱する」を温めると同一視）を踏まえて追加したもの。
+// 削除するとこれらの誤指摘が再発するので、消す場合は理由を確認してから。
 async function aiSemanticCheck(d) {
   const systemPrompt = `あなたは目黒マルシェの「臨時出店届」の内容を確認する担当者です。
 入力されたJSONの内容を見て、食品衛生上・記載内容として不自然・矛盾している点だけを指摘してください。
@@ -540,6 +558,8 @@ async function aiSemanticCheck(d) {
 - 「具材」という曖昧な記載の指摘
 - ホイップクリームの植物性明記漏れの指摘
 - クレープの現地調理（前日仕込み・温め提供は不可）の指摘
+- 仕込み先・自家製造施設・清涼飲料水製造許可施設の名称・住所（prepFacilityName／prepFacilityAddress／facilityName／facilityAddress／drinkPermitFacilityName／drinkPermitFacilityAddress）が「同上」と記載されている点の指摘（出店者自身の住所・店名が、既に許可を得た施設であることを示す一般的な書き方のため問題ない）
+- 調理方法・その他調理方法欄に「加熱する」「焼く」「煮る」「蒸す」「揚げる」のいずれかの言葉が使われている場合、それが実質的に「温める」と同じ行為ではないかという指摘（仕込み済みの食品を会場で再加熱する場合であっても、これらの言葉が使われていれば表現として十分なので、意図を深読みして指摘しない）
 
 指摘してほしいのは、たとえば以下のような機械的チェックをすり抜ける矛盾です:
 - 食品名と調理方法が明らかに矛盾している（例：トーストと書いてあるのに調理方法が「蒸す」）
@@ -554,6 +574,8 @@ async function aiSemanticCheck(d) {
 - 判断がつかない場合は、指摘はせず「生のまま提供する部分がある場合は主催者に個別確認してください」という趣旨のみ添える程度に留める
 
 問題がなければ items を空配列にしてください。過剰な指摘はしないでください（迷ったら指摘しない）。
+
+指摘する場合のmessageは、出店者が読んですぐ動けるように、直し方を1つだけ短く伝えてください。「Aの場合はこう直す、Bの場合はこう直す、逆にCの場合は…」のような場合分けをした長い説明や、複数の直し方を並べることはしないでください。一番可能性が高い直し方を1つだけ提案してください。
 
 必ず以下のJSON形式のみで返答してください:
 {
