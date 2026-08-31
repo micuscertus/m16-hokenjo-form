@@ -156,7 +156,11 @@ function detectDrinkPermitNeeded(texts) {
 // 使えるので珈琲側の証拠としても引き続き有効にする）
 function detectBulkBrewedDrink(d) {
   const text = [d.foodName, ...(d.ingredients || []), d.cookingMethodOther].filter(Boolean).join(' ');
-  const brewingMethod = d.cookingMethod === 'other' || d.cookingMethod === 'pour';
+  // 固定選択肢「一杯ずつカップに抽出する」は選択自体が単杯抽出の確認になるため、
+  // 自由記述欄（cookingMethodOther）で使い捨てバッグ／ドリッパーの言葉を別途探す必要はない。
+  // 自由記述欄がある「その他」を選んだ場合のみ、その中身で単杯抽出を確認する
+  if (d.cookingMethod === 'pour') return null;
+  const brewingMethod = d.cookingMethod === 'other';
   if (!brewingMethod) return null;
   const isTea = Boolean(containsAny(text, TEA_KEYWORDS));
   const isCoffee = Boolean(containsAny(text, COFFEE_KEYWORDS));
@@ -449,7 +453,8 @@ function validateSubmission(d) {
       errors.ingredients = '豆をその場で粉にすることを記載すると通りません。';
     }
 
-    // コーヒー・紅茶等をまとめて作り置きするのは許可が通らない（cookingMethod='pour'等、その他欄を使わないケース）
+    // コーヒー・紅茶等をまとめて作り置きするのは許可が通らない（cookingMethod='other'で自由記述がある場合のみ判定。
+    // 'pour'（一杯ずつカップに抽出する）は選択自体が単杯抽出の確認になるためdetectBulkBrewedDrink内で対象外）
     if (!errors.ingredients && !errors.cookingMethodOther && detectBulkBrewedDrink(d)) {
       errors.ingredients = bulkBrewedDrinkMessage(detectBulkBrewedDrink(d));
     }
@@ -522,11 +527,29 @@ function validateSubmission(d) {
 // PDF表示と同じ日本語ラベルに変換してからAIに渡すことで、この種の誤判定を防ぐ
 // 「その他」（コード値"other"）はラベル対応表に存在しないため、PDF生成と同じく
 // 自由記述欄の中身にフォールバックする（それも空ならコード値のまま残す）
+// AIに渡すJSONのキー名（英語のプログラム変数名）自体をここで日本語に変換する。
+// 値だけ日本語化してキー名を英語のまま残すと、AIが入力に見えている英語のキー名を
+// そのまま指摘文にコピーしてしまう事例が実際にあったため（drinkPermitFacilityName等）、
+// キー名も含めて英語がAIの目に触れないようにする
+const FIELD_LABELS = {
+  address: '出店者の住所', shopName: '店名', personName: '担当者の個人名', phone: '電話番号',
+  email: 'メールアドレス', cumulativeDays: '本年度の累計出店日数', businessType: '業態区分',
+  foodName: '取扱食品名', servingCount: '提供数', ingredients: '使う食材',
+  ingredientSourceType: '材料の仕入れ区分', ingredientSourceName: '材料の購入先（名前）', ingredientSourceAddress: '材料の購入先（住所）',
+  drinkPermitFacilityName: '清涼飲料水の許可施設（名称）', drinkPermitFacilityAddress: '清涼飲料水の許可施設（住所）',
+  prep: '仕込みについて', prepFacilityName: '仕込みを行う施設（名称）', prepFacilityAddress: '仕込みを行う施設（住所）', prepDetail: '当日仕込み内容',
+  cookingMethod: '調理方法', cookingMethodOther: '具体的な調理方法',
+  storage: '保存方法', storageOther: '保存方法の内容',
+  serveMethod: '提供方法', serveMethodOther: 'その他の提供方法',
+  supplierName: '仕入先の名前', selfMade: '仕入れ先', facilityName: '施設名', facilityAddress: '施設住所', supplierAddress: '仕入先の住所',
+  packagingConfirmed: '包装済み完成品を販売する', isFrozen: '冷凍食品を扱う', frozenLabelConfirmed: '冷凍食品である旨の表示がある',
+};
+
 function humanizeSubmission(d) {
   const h = { ...d };
-  if (d.cookingMethod) h.cookingMethod = COOKING_METHOD_LABELS[d.cookingMethod] || (d.cookingMethod === 'other' ? 'その他（cookingMethodOther欄を参照）' : d.cookingMethod);
-  if (d.storage) h.storage = STORAGE_LABELS[d.storage] || (d.storage === 'other' ? 'その他（storageOther欄を参照）' : d.storage);
-  if (Array.isArray(d.serveMethod)) h.serveMethod = d.serveMethod.map((m) => SERVE_METHOD_LABELS[m] || (m === 'other' ? 'その他（serveMethodOther欄を参照）' : m));
+  if (d.cookingMethod) h.cookingMethod = COOKING_METHOD_LABELS[d.cookingMethod] || (d.cookingMethod === 'other' ? 'その他（具体的な調理方法欄を参照）' : d.cookingMethod);
+  if (d.storage) h.storage = STORAGE_LABELS[d.storage] || (d.storage === 'other' ? 'その他（保存方法の内容欄を参照）' : d.storage);
+  if (Array.isArray(d.serveMethod)) h.serveMethod = d.serveMethod.map((m) => SERVE_METHOD_LABELS[m] || (m === 'other' ? 'その他（その他の提供方法欄を参照）' : m));
   if (d.businessType) h.businessType = d.businessType === 'restaurant' ? '飲食店' : d.businessType === 'retail' ? '食品物販' : d.businessType;
   if (d.ingredientSourceType) {
     h.ingredientSourceType = d.ingredientSourceType === 'selfmade'
@@ -535,7 +558,13 @@ function humanizeSubmission(d) {
   }
   if (d.prep) h.prep = d.prep === 'onsite' ? '保健所許可のある施設（またはシェアキッチン等）で当日仕込みあり' : d.prep === 'none' ? '仕込みなし' : d.prep;
   if (d.selfMade) h.selfMade = d.selfMade === 'yes' ? '保健所許可のある場所で自家製造したものを販売する' : d.selfMade === 'no' ? '購入する' : d.selfMade;
-  return h;
+
+  // キー名を日本語ラベルに付け替える（対応表にないキーは念のため英語のまま残す）
+  const relabeled = {};
+  for (const [key, value] of Object.entries(h)) {
+    relabeled[FIELD_LABELS[key] || key] = value;
+  }
+  return relabeled;
 }
 
 // ===== AI意味チェック（構造では防げない食品衛生の妥当性判断） =====
@@ -567,7 +596,7 @@ async function aiSemanticCheck(d) {
 - ご飯類（ご飯・白米・ライス・おにぎり・カレーライス）をその場でよそう提供の指摘
 - 現場の調理方法・その他調理方法欄での「茹でる」（大量の水を使う調理）の指摘（仕込み内容欄は許可施設で行う前提のため対象外。仕込み内容欄に「茹でる」とあっても指摘不要）
 - 購入先の空欄・海外住所
-- シロップ・果汁・コーディアル系ドリンク（柑橘の自家製シロップ含む）の清涼飲料水製造業許可の指摘（drinkPermitFacilityName・drinkPermitFacilityAddressに記入がある、または材料欄等に「市販」と明記されていれば、許可施設の記載要件は既に満たされているので指摘不要）
+- シロップ・果汁・コーディアル系ドリンク（柑橘の自家製シロップ含む）の清涼飲料水製造業許可の指摘（清涼飲料水の許可施設の名称・住所の欄に記入がある、または材料欄等に「市販」と明記されていれば、許可施設の記載要件は既に満たされているので指摘不要）
 - 生のレモン・ライム等をドリンクにそのまま使う点の指摘
 - コーヒー・紅茶等をまとめて作り置きする点の指摘（市販ティーバッグ・ドリップバッグへの変更）
 - コーヒーのドリッパーが「使い捨て」でも「カセット式」でもない点の指摘
@@ -576,10 +605,10 @@ async function aiSemanticCheck(d) {
 - 「具材」という曖昧な記載の指摘
 - ホイップクリームの植物性明記漏れの指摘
 - クレープの現地調理（前日仕込み・温め提供は不可）の指摘
-- 仕込み先・自家製造施設・清涼飲料水製造許可施設の名称・住所（prepFacilityName／prepFacilityAddress／facilityName／facilityAddress／drinkPermitFacilityName／drinkPermitFacilityAddress）が「同上」と記載されている点の指摘（出店者自身の住所・店名が、既に許可を得た施設であることを示す一般的な書き方のため問題ない）
-- 材料の仕入れ区分（ingredientSourceType）が「保健所許可のある場所で自家製造する」の場合に、施設名・施設住所が空欄・未記載である点の指摘（このフォームには自家製造を選んだ場合の施設名・住所を入力する欄自体が存在せず、出店者自身の住所・店名が施設情報を兼ねる設計のため、空欄で問題ない。記入を求める指摘は出店者が対応できないので絶対にしないこと）
+- 仕込み先・自家製造施設・清涼飲料水製造許可施設など、施設の名称・住所を尋ねるどの欄であっても「同上」と記載されている点の指摘（出店者自身の住所・店名が、既に許可を得た施設であることを示す一般的な書き方のため問題ない）
+- 材料の仕入れ区分が「保健所許可のある場所で自家製造する」の場合に、施設名・施設住所が空欄・未記載である点の指摘（このフォームには自家製造を選んだ場合の施設名・住所を入力する欄自体が存在せず、出店者自身の住所・店名が施設情報を兼ねる設計のため、空欄で問題ない。記入を求める指摘は出店者が対応できないので絶対にしないこと）
 - 調理方法・その他調理方法欄に何らかの加熱調理を示す記載があり、それが「温める」「あたためる」という言葉自体でない場合、その加熱が実質的に「温める」と同じ行為ではないか、加熱の程度が十分か、といった深読みした指摘（仕込み済みの食品を会場で再加熱する場合であっても、「温める」という言葉さえ使っていなければ表現として十分なので、それ以上の具体性・詳しさは求めない）
-- 保存方法（storage欄）は既に確認済みです。仕込みから会場までの運搬中の温度管理・輸送方法について、仕込み内容欄等に追加の説明を求める指摘はしないでください
+- 保存方法の欄は既に確認済みです。仕込みから会場までの運搬中の温度管理・輸送方法について、仕込み内容欄等に追加の説明を求める指摘はしないでください
 - 材料（野菜・海鮮・生の果物・肉類・麺類・卵など）が十分に加熱されているかどうかの判断・指摘（機械チェックとフォーム上の案内文で別途対応済みのため対象外。AIチェックでは一切判断しないこと）
 - ひき肉から成形する必要がある食品（ハンバーグ等）について、仕込みが「仕込みなし」になっている場合に、生のひき肉から成形したのか市販の成形済み品を使っているのかを尋ねたり、成形作業は仕込みとして記載が必要ではないかと指摘したりすること（「仕込みなし」が選ばれている時点で、現地では成形等の下ごしらえを行わない前提として扱ってよい）
 
@@ -593,6 +622,8 @@ async function aiSemanticCheck(d) {
 問題がなければ items を空配列にしてください。過剰な指摘はしないでください（迷ったら指摘しない）。
 
 指摘する場合のmessageは、出店者が読んですぐ動けるように、直し方を1つだけ短く伝えてください。「Aの場合はこう直す、Bの場合はこう直す、逆にCの場合は…」のような場合分けをした長い説明や、複数の直し方を並べることはしないでください。一番可能性が高い直し方を1つだけ提案してください。
+
+入力されたJSONのキー名（drinkPermitFacilityNameのような英語のプログラム変数名）を、messageの中にそのまま書かないでください。出店者はこれらの変数名を知らないので、必ず日本語のフォーム上の項目名・呼び方（例：「清涼飲料水の許可施設の欄」）で説明してください。
 
 必ず以下のJSON形式のみで返答してください:
 {

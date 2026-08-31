@@ -749,7 +749,11 @@
   // 使えるので珈琲側の証拠としても引き続き有効にする）
   function detectBulkBrewedDrink(foodName, ing1, ing2, ing3, cookingMethod, cookingOther) {
     const text = [foodName, ing1, ing2, ing3, cookingOther].filter(Boolean).join(' ');
-    const brewingMethod = cookingMethod === 'other' || cookingMethod === 'pour';
+    // 固定選択肢「一杯ずつカップに抽出する」は選択自体が単杯抽出の確認になるため、
+    // 自由記述欄で使い捨てバッグ／ドリッパーの言葉を別途探す必要はない。
+    // 自由記述欄がある「その他」を選んだ場合のみ、その中身で単杯抽出を確認する
+    if (cookingMethod === 'pour') return null;
+    const brewingMethod = cookingMethod === 'other';
     if (!brewingMethod) return null;
     const isTea = Boolean(containsAny(text, TEA_KEYWORDS));
     const isCoffee = Boolean(containsAny(text, COFFEE_KEYWORDS));
