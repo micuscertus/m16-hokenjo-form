@@ -365,7 +365,7 @@
             コーヒーの出店については以下３点のクリアーが必須です。<br><br>
             ①ドリッパー使い回しの禁止：「使い捨てドリッパー」または「市販のカセット式ドリッパー」を使用してください（使い捨てドリッパーは目黒マルシェで1つ30円で販売しています）。<br>
             ②調理方法：ポットなどでの作り置きは禁止です。「その他」を選び、抽出方法を具体的に記載してください。<br>
-            ③食材：「豆」と書くと通りません。材料欄には「コーヒー粉」「ドリップパック」などと記載してください。
+            ③食材：コーヒー豆は許可が通らない可能性があるので、コーヒー粉と記載してください。
           </div>
         </div>
 
@@ -468,11 +468,10 @@
             <label class="radio-option"><input type="radio" name="cookingMethod" value="fry">食材を油で揚げる</label>
             <label class="radio-option"><input type="radio" name="cookingMethod" value="tea_bag">市販のティーバッグで一杯ずつ抽出する</label>
             <label class="radio-option"><input type="radio" name="cookingMethod" value="coffee_dripper">使い捨てドリッパーで一杯ずつ抽出する</label>
-            <label class="radio-option"><input type="radio" name="cookingMethod" value="coffee_filter">市販のドリップバッグ（使い捨てフィルター）で一杯ずつ抽出する</label>
             <label class="radio-option"><input type="radio" name="cookingMethod" value="other">その他</label>
           </div>
           <div class="field-error"></div>
-          <div class="soft-notice" id="coffeeExtractionNotice">コーヒーの抽出方法をご確認ください。上の選択肢で「使い捨てドリッパーで一杯ずつ抽出する」または「市販のドリップバッグ（使い捨てフィルター）で一杯ずつ抽出する」を選んでください。該当しない場合はこのままで構いません。</div>
+          <div class="soft-notice" id="coffeeExtractionNotice">コーヒーの抽出方法をご確認ください。上の選択肢で「使い捨てドリッパーで一杯ずつ抽出する」を選んでください。該当しない場合はこのままで構いません。</div>
 
           <div class="sub-field hidden" id="cookingOtherSub">
             <div class="field" data-field="cookingMethodOther">
@@ -747,11 +746,11 @@
   // 先に紅茶か珈琲かを確定してから「一杯ずつ抽出」の証拠を判定する（コーヒー用のドリッパー語彙が
   // 紅茶側の判定まで打ち消してしまわないようにするため。逆に紅茶用のティーバッグ語彙はコーヒーにも
   // 使えるので珈琲側の証拠としても引き続き有効にする）
-  const SINGLE_SERVE_COOKING_METHODS = ['tea_bag', 'coffee_dripper', 'coffee_filter'];
+  const SINGLE_SERVE_COOKING_METHODS = ['tea_bag', 'coffee_dripper'];
 
   function detectBulkBrewedDrink(foodName, ing1, ing2, ing3, cookingMethod, cookingOther) {
     const text = [foodName, ing1, ing2, ing3, cookingOther].filter(Boolean).join(' ');
-    // 固定選択肢「市販のティーバッグ／使い捨てドリッパー／ドリップバッグで一杯ずつ抽出する」は
+    // 固定選択肢「市販のティーバッグ／使い捨てドリッパーで一杯ずつ抽出する」は
     // 選択自体が単杯抽出の確認になるため、自由記述欄で使い捨てバッグ／ドリッパーの言葉を別途探す必要はない。
     // 自由記述欄がある「その他」を選んだ場合のみ、その中身で単杯抽出を確認する
     if (SINGLE_SERVE_COOKING_METHODS.includes(cookingMethod)) return null;
@@ -771,7 +770,7 @@
     if (type === 'tea') {
       return '茶葉の使用は許可がおりません。許可をもらうため、食材には「市販のティーバッグ」と記載して、下の調理方法は「市販のティーバッグで一杯ずつ抽出する」を選択してください。';
     }
-    return 'まとめて作り置きは許可がおりません。許可をもらうため、下の調理方法で「使い捨てドリッパーで一杯ずつ抽出する」または「市販のドリップバッグ（使い捨てフィルター）で一杯ずつ抽出する」を選択してください。';
+    return 'まとめて作り置きは許可がおりません。許可をもらうため、下の調理方法で「使い捨てドリッパーで一杯ずつ抽出する」を選択してください。';
   }
 
   // コーヒー関連ルールは全て「取扱食品名にコーヒー/珈琲/coffeeが含まれる」場合のみ適用する
@@ -913,7 +912,7 @@
     }
 
     if (isCoffeeFoodName(foodName) && detectCoffeeBeanWording(ingList)) {
-      issues.push('「豆」と書くと通らないので、材料欄には「コーヒー粉」「ドリップパック」などと記載してください。');
+      issues.push('コーヒー豆は許可が通らない可能性があるので、コーヒー粉と記載してください。');
     }
 
     const prepDetailText = document.getElementById('prepDetail')?.value.trim() || '';
@@ -974,7 +973,7 @@
     const { foodName: coffeeFoodName } = getFoodNameAndIngredients();
     const coffeeOtherText = document.getElementById('cookingMethodOther')?.value.trim() || '';
     const needsCoffeeExtractionNotice = isCoffeeFoodName(coffeeFoodName)
-      && !(selected === 'coffee_dripper' || selected === 'coffee_filter')
+      && selected !== 'coffee_dripper'
       && !(selected === 'other' && detectSufficientCoffeeExtraction(coffeeOtherText));
     document.getElementById('coffeeExtractionNotice')?.classList.toggle('show', needsCoffeeExtractionNotice);
 
