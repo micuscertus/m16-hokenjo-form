@@ -382,7 +382,7 @@
             牛乳は通らない ⇒ オーツミルク・豆乳等に変更。<br>
             ホイップクリームは通らない ⇒ 植物性ホイップクリームを使用と記入。<br><br>
             白米・おにぎり・カレーライス等をその場でよそう提供は通らない。 ⇒ 「パック詰めしたものを販売」にするか、クスクスなどに変更してください。<br><br>
-            生野菜を生のまま提供することは通らない（許可施設でカットしても、生のまま出すこと自体が不可） ⇒ 加熱調理する内容で記載。<br>
+            生野菜を生のまま提供することは通らない（許可施設でカットしても、生のまま出すこと自体が不可） ⇒ 調理方法で「その他」を選び、「野菜を焼く」等、加熱する内容を記載。レタスなど生のまま添えるだけで焼く予定のない野菜は、材料欄・調理方法欄のどちらにも書かないでください。<br>
             肉・魚介・麺・卵等の生食材も同様に、加熱調理する内容にしてください。<br><br>
             生のレモン・ライム等をドリンクにそのまま使うことは通らない ⇒ 「市販のシロップを炭酸で割る」と記載。<br><br>
             自家製シロップは「清涼飲料水製造許可のある施設」が必要 ⇒ なければ「市販のシロップ」と記載。<br><br>
@@ -392,7 +392,7 @@
           <div class="ingredient-row"><span>②</span><input type="text" id="ingredient2" placeholder="例：パン（無ければ空欄で可）"></div>
           <div class="ingredient-row"><span>③</span><input type="text" id="ingredient3" placeholder="例：ソース（無ければ空欄で可）"></div>
           <div class="field-error"></div>
-          <div class="soft-notice" id="rawVegNotice">生野菜の使用は許可が通らないことが多いです。焼くことを記載するか、記載から省いてください。</div>
+          <div class="soft-notice" id="rawVegNotice">生の食材は保健所の許可が通らない場合があります。調理方法で「その他」を選び、加熱する内容を明記してください。</div>
         </div>
 
         <div class="field" data-field="drinkPermitFacility">
@@ -675,17 +675,13 @@
   const WEAK_HEAT_REGEX = /(温め|あたため)(る|て|た|ます|ない)/;
   // 「茹でる」（大量の水を使う調理）は不可、「煮る」を選ぶよう案内する
   const BOIL_WORD_REGEX = /茹で(る|て|た|ます|ない)/;
-  // 野菜は専用の文言（「生野菜」）を出し、それ以外（麺・肉・魚介・卵）はカテゴリごとに文言を
-  // 増やすとパターンが際限なく増えるため、まとめて「生の食材」という汎用文言で扱う
+  // 野菜・麺・肉・魚介・卵などカテゴリごとに文言を出し分けると、AIチェック側でカテゴリの
+  // 誤判定が起きる（実測で発生済み）ため、カテゴリを問わず同じ汎用文言で統一して扱う
   const RAW_VEGETABLE_KEYWORDS = ['きゅうり', 'レタス', 'トマト', 'キャベツ', '水菜', 'パクチー', 'もやし', '生野菜', '生の野菜', '生の果物'];
   const RAW_OTHER_KEYWORDS = ['焼きそば', 'そば', 'うどん', 'ラーメン', 'パスタ', '麺', '豚肉', '鶏肉', '牛肉', 'ひき肉', '魚', 'エビ', 'イカ', 'タコ', '卵'];
   const RAW_OR_HEAT_NEEDED_KEYWORDS = [...RAW_VEGETABLE_KEYWORDS, ...RAW_OTHER_KEYWORDS];
-  // 生食材ヒットのカテゴリに応じて文言を出し分ける
-  function rawFoodMessage(text) {
-    if (containsAny(text, RAW_VEGETABLE_KEYWORDS)) {
-      return '生野菜の使用は許可が通らないことが多いです。焼くことを記載するか、記載から省いてください。';
-    }
-    return '生の食材の使用は許可が通らないことが多いです。焼くことを記載するか、記載から省いてください。';
+  function rawFoodMessage() {
+    return '生の食材は保健所の許可が通らない場合があります。調理方法で「その他」を選び、加熱する内容を明記してください。';
   }
   const HAM_CHEESE_KEYWORDS = ['ハム', 'チーズ'];
   // 「お茶」は「お茶漬け」等に部分一致してしまうため含めない。紅茶と珈琲で案内文言を分けるため別リストで持つ
@@ -939,7 +935,7 @@
     const rawText = [foodName, ing1, ing2, ing3].filter(Boolean).join(' ');
     const rawVegHit = !cookingMethod && containsAny(rawText, RAW_OR_HEAT_NEEDED_KEYWORDS);
     const rawVegNoticeEl = document.getElementById('rawVegNotice');
-    if (rawVegNoticeEl && rawVegHit) rawVegNoticeEl.textContent = rawFoodMessage(rawText);
+    if (rawVegNoticeEl && rawVegHit) rawVegNoticeEl.textContent = rawFoodMessage();
     rawVegNoticeEl?.classList.toggle('show', Boolean(rawVegHit));
 
     // コーヒーの3点案内は常時表示（赤字エラーではなく案内のみ）
@@ -983,7 +979,7 @@
       const isHeated = HEAT_COOKING_METHODS.includes(selected)
         || (selected === 'other' && Boolean(coffeeOtherText) && !detectWeakHeatWord(coffeeOtherText));
       if (rawHit && !isHeated) {
-        setError('cookingMethod', rawFoodMessage(rawText));
+        setError('cookingMethod', rawFoodMessage());
         return;
       }
     }
