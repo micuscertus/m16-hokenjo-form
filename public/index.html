@@ -460,19 +460,19 @@
         <div class="field" data-field="cookingMethod">
           <label>調理方法（主たるもの1つのみ）</label>
           <div class="ng-example">調理は1つだけ、主となる調理を選ぶ。余計なことを書くと落とされる原因となるため、出来るだけチェック項目から選ぶ。<br>茹でる（大量の水を使う調理）は許可が通らない場合がある ⇒ 煮るを選択。<br>温めるは通らない ⇒ 加熱、煮る、焼く、蒸すなど滅菌できる調理を書く。</div>
-          <div class="ng-example">加熱せず生のまま提供すること（切っただけ・盛っただけ等）は通らない場合がある。「よそう」「一杯ずつカップに抽出する」「その他」を選ぶ場合も、中身は加熱調理済みのものにする方が好ましい。「その他」を選ぶ場合は、実際にやる加熱調理（焼く・煮る・蒸す・揚げる・炒める等）を具体的に書けば通る。「温める」「あたためる」という言葉だけは使えないので、加熱の内容が伝わる言葉に置き換えること。</div>
+          <div class="ng-example">加熱せず生のまま提供すること（切っただけ・盛っただけ等）は通らない場合がある。「その他」を選ぶ場合も、中身は加熱調理済みのものにする方が好ましい。「その他」を選ぶ場合は、実際にやる加熱調理（焼く・煮る・蒸す・揚げる・炒める等）を具体的に書けば通る。「温める」「あたためる」という言葉だけは使えないので、加熱の内容が伝わる言葉に置き換えること。</div>
           <div class="radio-group">
             <label class="radio-option"><input type="radio" name="cookingMethod" value="grill">食材を焼く</label>
             <label class="radio-option"><input type="radio" name="cookingMethod" value="boil">食材と水を鍋で煮る</label>
             <label class="radio-option"><input type="radio" name="cookingMethod" value="steam">食材を蒸し器で蒸す</label>
             <label class="radio-option"><input type="radio" name="cookingMethod" value="fry">食材を油で揚げる</label>
-            <label class="radio-option"><input type="radio" name="cookingMethod" value="season">味付けする</label>
-            <label class="radio-option"><input type="radio" name="cookingMethod" value="pour">一杯ずつカップに抽出する</label>
-            <label class="radio-option"><input type="radio" name="cookingMethod" value="plate">よそう（盛り付ける）</label>
+            <label class="radio-option"><input type="radio" name="cookingMethod" value="tea_bag">市販のティーバッグで一杯ずつ抽出する</label>
+            <label class="radio-option"><input type="radio" name="cookingMethod" value="coffee_dripper">使い捨てドリッパーで一杯ずつ抽出する</label>
+            <label class="radio-option"><input type="radio" name="cookingMethod" value="coffee_filter">市販のドリップバッグ（使い捨てフィルター）で一杯ずつ抽出する</label>
             <label class="radio-option"><input type="radio" name="cookingMethod" value="other">その他</label>
           </div>
           <div class="field-error"></div>
-          <div class="soft-notice" id="coffeeExtractionNotice">コーヒーの抽出方法をご確認ください。「その他」を選んで「使い捨てドリッパーで一杯ずつカップに抽出する」または「市販のカセット式ドリッパーで一杯ずつカップに抽出する」と記載してください。該当しない場合はこのままで構いません。</div>
+          <div class="soft-notice" id="coffeeExtractionNotice">コーヒーの抽出方法をご確認ください。上の選択肢で「使い捨てドリッパーで一杯ずつ抽出する」または「市販のドリップバッグ（使い捨てフィルター）で一杯ずつ抽出する」を選んでください。該当しない場合はこのままで構いません。</div>
 
           <div class="sub-field hidden" id="cookingOtherSub">
             <div class="field" data-field="cookingMethodOther">
@@ -706,21 +706,21 @@
 
   // 生の柑橘のみ検知（シロップ・果汁の加工表記があれば対象外）。シロップの自家製／市販の扱いは
   // drinkPermitFacilityの統一ルールで別途判定する。該当する分は全部集めて配列で返す
-  function detectCitrusIssues(texts) {
-    const list = Array.isArray(texts) ? texts : [texts];
+  //
+  // 検知対象（exemptTexts＋extraTriggerTexts）と、処理済みの証拠として認める対象（exemptTextsのみ）を
+  // 分けている。食品名・材料欄（短い名詞句）は処理済みの証拠として使えるが、その他調理方法欄・
+  // 仕込み内容欄は自由記述の文章で「レモンシロップは使わず生搾りする」のような否定文を含みうるため、
+  // 検知対象には含めても証拠としては使わない
+  function detectCitrusIssues(exemptTexts, extraTriggerTexts) {
+    const exemptList = Array.isArray(exemptTexts) ? exemptTexts : [exemptTexts];
+    const exemptJoined = exemptList.filter(Boolean).join(' ');
+    const triggerJoined = [exemptJoined, ...(Array.isArray(extraTriggerTexts) ? extraTriggerTexts : [extraTriggerTexts])].filter(Boolean).join(' ');
     const results = [];
-    const seen = new Set();
-    for (const text of list) {
-      if (!text) continue;
-      for (const k of RAW_CITRUS_DRINK_KEYWORDS) {
-        if (!text.includes(k)) continue;
-        const isProcessed = text.includes(`${k}シロップ`) || text.includes(`${k}果汁`);
-        if (isProcessed) continue;
-        if (!seen.has(k)) {
-          seen.add(k);
-          results.push({ type: 'raw', fruit: k });
-        }
-      }
+    for (const k of RAW_CITRUS_DRINK_KEYWORDS) {
+      if (!triggerJoined.includes(k)) continue;
+      const isProcessed = exemptJoined.includes(`${k}シロップ`) || exemptJoined.includes(`${k}果汁`);
+      if (isProcessed) continue;
+      results.push({ type: 'raw', fruit: k });
     }
     return results;
   }
@@ -747,12 +747,14 @@
   // 先に紅茶か珈琲かを確定してから「一杯ずつ抽出」の証拠を判定する（コーヒー用のドリッパー語彙が
   // 紅茶側の判定まで打ち消してしまわないようにするため。逆に紅茶用のティーバッグ語彙はコーヒーにも
   // 使えるので珈琲側の証拠としても引き続き有効にする）
+  const SINGLE_SERVE_COOKING_METHODS = ['tea_bag', 'coffee_dripper', 'coffee_filter'];
+
   function detectBulkBrewedDrink(foodName, ing1, ing2, ing3, cookingMethod, cookingOther) {
     const text = [foodName, ing1, ing2, ing3, cookingOther].filter(Boolean).join(' ');
-    // 固定選択肢「一杯ずつカップに抽出する」は選択自体が単杯抽出の確認になるため、
-    // 自由記述欄で使い捨てバッグ／ドリッパーの言葉を別途探す必要はない。
+    // 固定選択肢「市販のティーバッグ／使い捨てドリッパー／ドリップバッグで一杯ずつ抽出する」は
+    // 選択自体が単杯抽出の確認になるため、自由記述欄で使い捨てバッグ／ドリッパーの言葉を別途探す必要はない。
     // 自由記述欄がある「その他」を選んだ場合のみ、その中身で単杯抽出を確認する
-    if (cookingMethod === 'pour') return null;
+    if (SINGLE_SERVE_COOKING_METHODS.includes(cookingMethod)) return null;
     const brewingMethod = cookingMethod === 'other';
     if (!brewingMethod) return null;
     const isTea = Boolean(containsAny(text, TEA_KEYWORDS));
@@ -767,9 +769,9 @@
   // 材料欄に何を書くべきか・調理方法で何を選ぶべきかまで具体的に示す（紅茶）。珈琲は暫定で汎用文言のまま
   function bulkBrewedDrinkMessage(type) {
     if (type === 'tea') {
-      return '茶葉の使用は許可がおりません。許可をもらうため、食材には「市販のティーバッグ」と記載して、下の調理方法は「一杯ずつカップに抽出する」を選択してください。';
+      return '茶葉の使用は許可がおりません。許可をもらうため、食材には「市販のティーバッグ」と記載して、下の調理方法は「市販のティーバッグで一杯ずつ抽出する」を選択してください。';
     }
-    return 'まとめて作り置きは許可がおりません。許可をもらうため、市販のバッグで一杯ずつ抽出すると記載してください。';
+    return 'まとめて作り置きは許可がおりません。許可をもらうため、下の調理方法で「使い捨てドリッパーで一杯ずつ抽出する」または「市販のドリップバッグ（使い捨てフィルター）で一杯ずつ抽出する」を選択してください。';
   }
 
   // コーヒー関連ルールは全て「取扱食品名にコーヒー/珈琲/coffeeが含まれる」場合のみ適用する
@@ -914,7 +916,8 @@
       issues.push('「豆」と書くと通らないので、材料欄には「コーヒー粉」「ドリップパック」などと記載してください。');
     }
 
-    const citrusIssues = detectCitrusIssues(fields);
+    const prepDetailText = document.getElementById('prepDetail')?.value.trim() || '';
+    const citrusIssues = detectCitrusIssues([foodName, ...ingList], [cookingOther, prepDetailText]);
     citrusIssues.forEach((ci) => {
       issues.push(`「${ci.fruit}」は許可が通らないことが多いので、別のものを記載お願いします。`);
     });
@@ -971,6 +974,7 @@
     const { foodName: coffeeFoodName } = getFoodNameAndIngredients();
     const coffeeOtherText = document.getElementById('cookingMethodOther')?.value.trim() || '';
     const needsCoffeeExtractionNotice = isCoffeeFoodName(coffeeFoodName)
+      && !(selected === 'coffee_dripper' || selected === 'coffee_filter')
       && !(selected === 'other' && detectSufficientCoffeeExtraction(coffeeOtherText));
     document.getElementById('coffeeExtractionNotice')?.classList.toggle('show', needsCoffeeExtractionNotice);
 
@@ -1093,7 +1097,10 @@
       checkStorageLive();
     });
   });
-  document.getElementById('prepDetail')?.addEventListener('input', checkPrepDetailLive);
+  document.getElementById('prepDetail')?.addEventListener('input', () => {
+    checkPrepDetailLive();
+    checkIngredientsLive();
+  });
   ['drinkPermitFacilityName', 'drinkPermitFacilityAddress'].forEach((id) => {
     document.getElementById(id)?.addEventListener('input', () => {
       const drinkFields = [document.getElementById('foodName')?.value, document.getElementById('ingredient1')?.value, document.getElementById('ingredient2')?.value, document.getElementById('ingredient3')?.value, document.getElementById('cookingMethodOther')?.value];

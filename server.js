@@ -21,8 +21,12 @@ const { google } = require('googleapis');
 // フォームの内部コードをPDF・表示用の日本語ラベルに変換する対応表
 const COOKING_METHOD_LABELS = {
   grill: '食材を焼く', boil: '食材と水を鍋で煮る', steam: '食材を蒸し器で蒸す', fry: '食材を油で揚げる',
-  season: '味付けする', pour: '一杯ずつカップに抽出する', plate: 'よそう（盛り付ける）',
+  tea_bag: '市販のティーバッグで一杯ずつ抽出する',
+  coffee_dripper: '使い捨てドリッパーで一杯ずつ抽出する',
+  coffee_filter: '市販のドリップバッグ（使い捨てフィルター）で一杯ずつ抽出する',
 };
+// 単杯抽出であることが選択肢自体から確定している調理方法（自由記述での追加確認は不要）
+const SINGLE_SERVE_COOKING_METHODS = ['tea_bag', 'coffee_dripper', 'coffee_filter'];
 const STORAGE_LABELS = { normal: '常温', cold: '冷蔵（クーラーBOX等）', frozen: '冷凍' };
 const SERVE_METHOD_LABELS = { disposable: '使い捨て容器にて提供', cup: '使い捨てカップにて提供' };
 
@@ -107,23 +111,25 @@ function detectBoilWord(text) {
 
 // 柑橘の記載のうち「生のまま使う」ものだけを検知する（シロップ・果汁のような加工表記があれば対象外）。
 // シロップとしての自家製／市販の扱いは、柑橘に限らず全てdrinkPermitFacilityの統一ルールで扱う。
-// texts は個別のフィールドごとの配列で渡すこと（結合してから判定すると、別欄の記載が判定を隠して
-// しまう＝分割記載によるすり抜けを防ぐため）。該当する分は全部集めて配列で返す
-function detectCitrusIssues(texts) {
-  const list = Array.isArray(texts) ? texts : [texts];
+//
+// 検知対象（triggerTexts）と、処理済みの証拠として認める対象（exemptTexts）を分けている。
+// 「レモンスカッシュ」のように食品名自体に果物名が入っている場合、材料欄で「市販のレモンシロップ」
+// と明記されていても、食品名だけを見ると「シロップ」の語が付かず誤って生食扱いされる問題があった。
+// これを直すため、食品名・材料欄（短い名詞句で、通常は言い切りの記載）はexemptTextsとして
+// 結合し、証拠が同じ提出物のどこにあっても拾えるようにした。
+// 一方、その他調理方法欄・仕込み内容欄は自由記述の文章で「レモンシロップは使わず生搾りする」の
+// ような否定文を含みうるため、この2つはtriggerTextsには含めるが、exemptTextsには含めない
+// （否定文中の「レモンシロップ」という部分文字列だけで処理済みと誤認しないようにするため）
+function detectCitrusIssues(exemptTexts, extraTriggerTexts) {
+  const exemptList = Array.isArray(exemptTexts) ? exemptTexts : [exemptTexts];
+  const exemptJoined = exemptList.filter(Boolean).join(' ');
+  const triggerJoined = [exemptJoined, ...(Array.isArray(extraTriggerTexts) ? extraTriggerTexts : [extraTriggerTexts])].filter(Boolean).join(' ');
   const results = [];
-  const seen = new Set();
-  for (const text of list) {
-    if (!text) continue;
-    for (const k of RAW_CITRUS_DRINK_KEYWORDS) {
-      if (!text.includes(k)) continue;
-      const isProcessed = text.includes(`${k}シロップ`) || text.includes(`${k}果汁`);
-      if (isProcessed) continue;
-      if (!seen.has(k)) {
-        seen.add(k);
-        results.push({ type: 'raw', fruit: k });
-      }
-    }
+  for (const k of RAW_CITRUS_DRINK_KEYWORDS) {
+    if (!triggerJoined.includes(k)) continue;
+    const isProcessed = exemptJoined.includes(`${k}シロップ`) || exemptJoined.includes(`${k}果汁`);
+    if (isProcessed) continue;
+    results.push({ type: 'raw', fruit: k });
   }
   return results;
 }
@@ -156,10 +162,11 @@ function detectDrinkPermitNeeded(texts) {
 // 使えるので珈琲側の証拠としても引き続き有効にする）
 function detectBulkBrewedDrink(d) {
   const text = [d.foodName, ...(d.ingredients || []), d.cookingMethodOther].filter(Boolean).join(' ');
-  // 固定選択肢「一杯ずつカップに抽出する」は選択自体が単杯抽出の確認になるため、
-  // 自由記述欄（cookingMethodOther）で使い捨てバッグ／ドリッパーの言葉を別途探す必要はない。
+  // 固定選択肢「市販のティーバッグ／使い捨てドリッパー／ドリップバッグで一杯ずつ抽出する」は
+  // 選択自体が単杯抽出の確認になるため、自由記述欄（cookingMethodOther）で
+  // 使い捨てバッグ／ドリッパーの言葉を別途探す必要はない。
   // 自由記述欄がある「その他」を選んだ場合のみ、その中身で単杯抽出を確認する
-  if (d.cookingMethod === 'pour') return null;
+  if (SINGLE_SERVE_COOKING_METHODS.includes(d.cookingMethod)) return null;
   const brewingMethod = d.cookingMethod === 'other';
   if (!brewingMethod) return null;
   const isTea = Boolean(containsAny(text, TEA_KEYWORDS));
@@ -174,9 +181,9 @@ function detectBulkBrewedDrink(d) {
 // 材料欄に何を書くべきか・調理方法で何を選ぶべきかまで具体的に示す（紅茶）。珈琲は暫定で汎用文言のまま
 function bulkBrewedDrinkMessage(type) {
   if (type === 'tea') {
-    return '茶葉の使用は許可がおりません。許可をもらうため、食材には「市販のティーバッグ」と記載して、下の調理方法は「一杯ずつカップに抽出する」を選択してください。';
+    return '茶葉の使用は許可がおりません。許可をもらうため、食材には「市販のティーバッグ」と記載して、下の調理方法は「市販のティーバッグで一杯ずつ抽出する」を選択してください。';
   }
-  return 'まとめて作り置きは許可がおりません。許可をもらうため、市販のバッグで一杯ずつ抽出すると記載してください。';
+  return 'まとめて作り置きは許可がおりません。許可をもらうため、下の調理方法で「使い捨てドリッパーで一杯ずつ抽出する」または「市販のドリップバッグ（使い捨てフィルター）で一杯ずつ抽出する」を選択してください。';
 }
 
 // コーヒー関連ルールは全て「取扱食品名にコーヒー/珈琲/coffeeが含まれる」場合のみ適用する
@@ -338,7 +345,9 @@ function validateSubmission(d) {
 
       // 生の柑橘（レモン等）をそのまま使う記載は許可が通らない（複数あれば全部）。
       // シロップとしての自家製／市販の扱いは drinkPermitFacility の統一ルールで別途判定する
-      const citrusIssues = detectCitrusIssues([d.foodName, ...ingredients, d.cookingMethodOther]);
+      // 検知対象はその他調理方法欄・仕込み内容欄まで含めるが、他のチェックと違いエラーは
+      // 常にingredients欄に表示する（柑橘チェックは項目ごとに分けていない）
+      const citrusIssues = detectCitrusIssues([d.foodName, ...ingredients], [d.cookingMethodOther, d.prepDetail]);
       citrusIssues.forEach((ci) => {
         issues.push(`「${ci.fruit}」は許可が通らないことが多いので、別のものを記載お願いします。`);
       });
@@ -448,13 +457,13 @@ function validateSubmission(d) {
       }
     }
 
-    // コーヒー豆をその場で挽くのは不可（cookingMethod='pour'等、その他欄を使わないケース）
+    // コーヒー豆をその場で挽くのは不可（テキスト内容のみで判定するため調理方法の選択肢は問わない）
     if (!errors.ingredients && !errors.cookingMethodOther && detectGroundOnSiteCoffee(d)) {
       errors.ingredients = '豆をその場で粉にすることを記載すると通りません。';
     }
 
     // コーヒー・紅茶等をまとめて作り置きするのは許可が通らない（cookingMethod='other'で自由記述がある場合のみ判定。
-    // 'pour'（一杯ずつカップに抽出する）は選択自体が単杯抽出の確認になるためdetectBulkBrewedDrink内で対象外）
+    // 単杯抽出専用の固定選択肢（SINGLE_SERVE_COOKING_METHODS）は選択自体が確認になるためdetectBulkBrewedDrink内で対象外）
     if (!errors.ingredients && !errors.cookingMethodOther && detectBulkBrewedDrink(d)) {
       errors.ingredients = bulkBrewedDrinkMessage(detectBulkBrewedDrink(d));
     }
