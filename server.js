@@ -73,14 +73,6 @@ function rawFoodMessage(text) {
 }
 // 実際に加熱する調理方法（これ以外は「加熱した」と見なさない）
 const HEAT_COOKING_METHODS = ['grill', 'boil', 'steam', 'fry'];
-// 調理方法「その他」の自由記述が実質的に加熱調理と読み取れるかの判定に使う言葉
-const HEAT_WORD_KEYWORDS = [
-  '加熱',
-  '焼く', '焼いて', '焼いた', '焼き直し', '焼き直す', '焼き直して', '焼き直した',
-  '煮る', '煮て', '煮た', '煮直し', '煮直す', '煮直して', '煮直した',
-  '蒸す', '蒸して', '蒸した', '蒸し直し', '蒸し直す', '蒸し直して', '蒸し直した',
-  '揚げる', '揚げて', '揚げた', '揚げ直し', '揚げ直す', '揚げ直して', '揚げ直した',
-];
 // 常温保存でも問題ない食品（これに該当しなければ常温は警告対象）
 const DRY_SAFE_KEYWORDS = ['乾麺', '乾き物', '乾物', 'せんべい', 'クッキー', 'ビスケット', '飴', 'キャンディ', 'ポップコーン', 'スナック', 'ドライフルーツ', '焼き菓子', '駄菓子', 'チップス', 'ナッツ', 'コーヒー粉', 'ドリップパック', '茶葉', 'ティーバッグ'];
 // ハム・チーズは許可が通らない（保健所確認済み）
@@ -323,20 +315,20 @@ function validateSubmission(d) {
         issues.push('ご飯をその場でよそるのは許可が下りません。パック詰めしたものを販売か、クスクスなどに変更して下さい。');
       }
 
-      // ingredients欄だけでなく、その他欄・仕込み内容にハム/チーズ等が書かれるケースも拾う
-      // 「具材」は仕込み内容側で専用チェックするので、ここでは仕込み内容を対象にしない
-      const extendedFields = [...ingredients, d.cookingMethodOther, d.prepDetail];
-      if (detectHamCheese(extendedFields).length > 0) {
+      // ハム/チーズ・ホイップクリーム・ドリッパー・「具材」曖昧表現は、材料欄自体に書かれている分だけをここで拾う。
+      // その他調理方法欄・仕込み内容欄に書かれた分は、それぞれの欄側で個別に拾って
+      // 該当する欄（errors.cookingMethodOther／errors.prepDetail）に表示する（材料欄に誤って表示されないように）。
+      if (detectHamCheese(ingredients).length > 0) {
         issues.push('「ハム」「チーズ」を記載すると通らないことが多いです。許可をもらうため、他の食材を記入してください。');
       }
-      if (detectVagueFillingWord([...ingredients, d.cookingMethodOther])) {
-        issues.push('「具材」だけだと許可が通らないことが多いため、具体的な食材を2つほど記載してください。');
-      }
-      if (detectNonPlantWhipCream(extendedFields)) {
+      if (detectNonPlantWhipCream(ingredients)) {
         issues.push('ホイップクリームは許可をもらうため、「植物性ホイップクリーム」と記入してください。');
       }
-      if (detectNonDisposableDripper(extendedFields)) {
+      if (detectNonDisposableDripper(ingredients)) {
         issues.push('ドリッパーは「使い捨て」か「市販のカセット式」以外は使用できません。（使い捨てドリッパーは30円で目黒マルシェで販売しています）。');
+      }
+      if (detectVagueFillingWord(ingredients)) {
+        issues.push('「具材」だけだと許可が通らないことが多いため、具体的な食材を2つほど記載してください。');
       }
 
       // コーヒーの材料欄に「豆」とだけ書く、または「珈琲豆」「コーヒー豆」と書くと通らない
@@ -380,6 +372,12 @@ function validateSubmission(d) {
         errors.prepDetail = '当日仕込み内容を具体的に入力してください。';
       } else if (detectVagueFillingWord(d.prepDetail)) {
         errors.prepDetail = '「具材」だけだと許可が通らないことが多いため、具体的な食材を2つほど記載してください。';
+      } else if (detectHamCheese(d.prepDetail).length > 0) {
+        errors.prepDetail = '「ハム」「チーズ」を記載すると通らないことが多いです。許可をもらうため、他の食材を記入してください。';
+      } else if (detectNonPlantWhipCream(d.prepDetail)) {
+        errors.prepDetail = 'ホイップクリームは許可をもらうため、「植物性ホイップクリーム」と記入してください。';
+      } else if (detectNonDisposableDripper(d.prepDetail)) {
+        errors.prepDetail = 'ドリッパーは「使い捨て」か「市販のカセット式」以外は使用できません。（使い捨てドリッパーは30円で目黒マルシェで販売しています）。';
       } else {
         // 茹でる禁止は現場（出店ブース）の設備制約が理由なので、許可施設で行う仕込みには適用しない
         const weakHeat = detectWeakHeatWord(d.prepDetail);
@@ -397,6 +395,14 @@ function validateSubmission(d) {
         errors.cookingMethodOther = '「その他」を選んだ場合は具体的な調理方法を入力してください。';
       } else if (detectBoilWord(d.cookingMethodOther)) {
         errors.cookingMethodOther = '茹でる（大量の水を使う調理）は許可が通りません。「煮る」を選択してください。';
+      } else if (detectVagueFillingWord(d.cookingMethodOther)) {
+        errors.cookingMethodOther = '「具材」だけだと許可が通らないことが多いため、具体的な食材を2つほど記載してください。';
+      } else if (detectHamCheese(d.cookingMethodOther).length > 0) {
+        errors.cookingMethodOther = '「ハム」「チーズ」を記載すると通らないことが多いです。許可をもらうため、他の食材を記入してください。';
+      } else if (detectNonPlantWhipCream(d.cookingMethodOther)) {
+        errors.cookingMethodOther = 'ホイップクリームは許可をもらうため、「植物性ホイップクリーム」と記入してください。';
+      } else if (detectNonDisposableDripper(d.cookingMethodOther)) {
+        errors.cookingMethodOther = 'ドリッパーは「使い捨て」か「市販のカセット式」以外は使用できません。（使い捨てドリッパーは30円で目黒マルシェで販売しています）。';
       } else if (detectWeakHeatWord(d.cookingMethodOther)) {
         // 「温める」系の言葉は曖昧チェックにも該当するが、こちらの方が具体的なので優先する
         const hasCrepe = [d.foodName, ...(d.ingredients || []), d.cookingMethodOther].filter(Boolean).join(' ').includes(CREPE_KEYWORD);
@@ -453,13 +459,15 @@ function validateSubmission(d) {
     }
 
     // 生のまま提供されやすい／加熱が前提の食材なのに、実際に加熱する調理方法が選ばれていない。
-    // 「その他」は自由記述の中身に加熱を示す言葉があれば加熱調理とみなす（固定の調理方法以外は
-    // 一律NGにすると、その他を選んで「食材を焼く」等と具体的に書いても永久に解除できなくなるため）
+    // 「その他」は、具体的な調理方法欄に何か書かれていて、かつ「温める」系の曖昧な言葉でなければ
+    // 加熱調理とみなす（「焼く」「炒める」等の言葉を1つずつ列挙する方式だと、単語が抜けるたびに
+    // 正しく加熱を書いても弾かれる不具合が起きるため、単語の完全一致は要求しない。
+    // 「温める」だけは detectWeakHeatWord で別途、常に禁止する）
     if (!errors.ingredients && !errors.cookingMethod) {
       const rawText = [d.foodName, ...(d.ingredients || [])].filter(Boolean).join(' ');
       const rawHit = containsAny(rawText, RAW_OR_HEAT_NEEDED_KEYWORDS);
       const isHeated = HEAT_COOKING_METHODS.includes(d.cookingMethod)
-        || (d.cookingMethod === 'other' && Boolean(containsAny(d.cookingMethodOther, HEAT_WORD_KEYWORDS)));
+        || (d.cookingMethod === 'other' && !isBlank(d.cookingMethodOther) && !detectWeakHeatWord(d.cookingMethodOther));
       if (rawHit && !isHeated) {
         errors.cookingMethod = rawFoodMessage(rawText);
       }
@@ -541,7 +549,8 @@ function humanizeSubmission(d) {
 // 削除するとこれらの誤指摘が再発するので、消す場合は理由を確認してから。
 async function aiSemanticCheck(d) {
   const systemPrompt = `あなたは目黒マルシェの「臨時出店届」の内容を確認する担当者です。
-入力されたJSONの内容を見て、食品衛生上・記載内容として不自然・矛盾している点だけを指摘してください。
+入力されたJSONの内容を見て、食品衛生上の危険や、記載内容が明らかに矛盾していて保健所で確認が必要になる点だけを指摘してください。
+文章の言い回し・表現の重複・言葉の選び方など、食品衛生に関係ない文章表現上の指摘はしないでください（同じ言葉が2回出てくる、もっと丁寧な言い方がある、等は指摘対象外）。
 以下はすでに機械的にチェック済みなので、指摘不要です:
 - 必須項目の空欄
 - 業態区分の二重選択
@@ -559,7 +568,8 @@ async function aiSemanticCheck(d) {
 - ホイップクリームの植物性明記漏れの指摘
 - クレープの現地調理（前日仕込み・温め提供は不可）の指摘
 - 仕込み先・自家製造施設・清涼飲料水製造許可施設の名称・住所（prepFacilityName／prepFacilityAddress／facilityName／facilityAddress／drinkPermitFacilityName／drinkPermitFacilityAddress）が「同上」と記載されている点の指摘（出店者自身の住所・店名が、既に許可を得た施設であることを示す一般的な書き方のため問題ない）
-- 調理方法・その他調理方法欄に「加熱する」「焼く」「煮る」「蒸す」「揚げる」のいずれかの言葉が使われている場合、それが実質的に「温める」と同じ行為ではないかという指摘（仕込み済みの食品を会場で再加熱する場合であっても、これらの言葉が使われていれば表現として十分なので、意図を深読みして指摘しない）
+- 調理方法・その他調理方法欄に何らかの加熱調理を示す記載があり、それが「温める」「あたためる」という言葉自体でない場合、その加熱が実質的に「温める」と同じ行為ではないか、加熱の程度が十分か、といった深読みした指摘（仕込み済みの食品を会場で再加熱する場合であっても、「温める」という言葉さえ使っていなければ表現として十分なので、それ以上の具体性・詳しさは求めない）
+- 保存方法（storage欄）は既に確認済みです。仕込みから会場までの運搬中の温度管理・輸送方法について、仕込み内容欄等に追加の説明を求める指摘はしないでください
 
 指摘してほしいのは、たとえば以下のような機械的チェックをすり抜ける矛盾です:
 - 食品名と調理方法が明らかに矛盾している（例：トーストと書いてあるのに調理方法が「蒸す」）
@@ -569,7 +579,7 @@ async function aiSemanticCheck(d) {
 - その他、明らかに保健所で差し戻されそうな矛盾
 
 海鮮・生野菜・生の果物・肉類・麺類・卵など「要冷蔵の生食材」については、キーワードだけで機械的に禁止はしていません。以下の考え方で判断してください:
-- 調理方法が「焼く／煮る／蒸す／揚げる」など加熱を伴うもので、その生食材が最終的に加熱される（例：グリルサンドの具として挟んで焼く）場合は問題視しない
+- 調理方法が何らかの加熱を伴うもので（「温める」「あたためる」という言葉自体でなければ、具体的にどんな言葉であっても加熱調理とみなしてよい）、その生食材が最終的に加熱される（例：グリルサンドの具として挟んで焼く）場合は問題視しない。加熱を示す記載があれば工程の説明として十分であり、「中心部まで加熱」「十分に火を通す」のようなより詳しい表現への修正までは求めない
 - その生食材が加熱されずそのまま提供される（例：生野菜のみのサラダ、飲料に生の果物をそのまま入れる、生ハムの盛り合わせ等）場合は、要冷蔵管理が必要になる旨と、常温保存できる代替品への変更を検討するよう指摘する
 - 判断がつかない場合は、指摘はせず「生のまま提供する部分がある場合は主催者に個別確認してください」という趣旨のみ添える程度に留める
 

@@ -234,7 +234,7 @@
   .banner.show { display: block; }
   .banner.ok { background: var(--navy-tint); color: var(--navy); }
   .banner.ng { background: #f8d7da; color: #721c24; }
-  .banner.ai { background: #fff3cd; color: #856404; }
+  .banner.ai { background: #f8d7da; color: #721c24; }
 
   .ai-error-list {
     margin-top: 8px;
@@ -460,7 +460,7 @@
         <div class="field" data-field="cookingMethod">
           <label>調理方法（主たるもの1つのみ）</label>
           <div class="ng-example">調理は1つだけ、主となる調理を選ぶ。余計なことを書くと落とされる原因となるため、出来るだけチェック項目から選ぶ。<br>茹でる（大量の水を使う調理）は許可が通らない場合がある ⇒ 煮るを選択。<br>温めるは通らない ⇒ 加熱、煮る、焼く、蒸すなど滅菌できる調理を書く。</div>
-          <div class="ng-example">加熱せず生のまま提供すること（切っただけ・盛っただけ等）は通らない場合がある。「よそう」「一杯ずつカップに抽出する」「その他」を選ぶ場合も、中身は加熱調理済みのものにする方が好ましい。「その他」を選ぶ場合は「焼く」「煮る」「蒸す」「揚げる」「加熱する」のいずれかの言葉を書くと通りやすい。</div>
+          <div class="ng-example">加熱せず生のまま提供すること（切っただけ・盛っただけ等）は通らない場合がある。「よそう」「一杯ずつカップに抽出する」「その他」を選ぶ場合も、中身は加熱調理済みのものにする方が好ましい。「その他」を選ぶ場合は、実際にやる加熱調理（焼く・煮る・蒸す・揚げる・炒める等）を具体的に書けば通る。「温める」「あたためる」という言葉だけは使えないので、加熱の内容が伝わる言葉に置き換えること。</div>
           <div class="radio-group">
             <label class="radio-option"><input type="radio" name="cookingMethod" value="grill">食材を焼く</label>
             <label class="radio-option"><input type="radio" name="cookingMethod" value="boil">食材と水を鍋で煮る</label>
@@ -839,14 +839,6 @@
     return '「温める」という言葉は使えません。加熱、煮る、焼く、蒸すなどの強く火が通る滅菌できる言葉を使ってください。';
   }
   const HEAT_COOKING_METHODS = ['grill', 'boil', 'steam', 'fry'];
-  // 調理方法「その他」の自由記述が実質的に加熱調理と読み取れるかの判定に使う言葉
-  const HEAT_WORD_KEYWORDS = [
-    '加熱',
-    '焼く', '焼いて', '焼いた', '焼き直し', '焼き直す', '焼き直して', '焼き直した',
-    '煮る', '煮て', '煮た', '煮直し', '煮直す', '煮直して', '煮直した',
-    '蒸す', '蒸して', '蒸した', '蒸し直し', '蒸し直す', '蒸し直して', '蒸し直した',
-    '揚げる', '揚げて', '揚げた', '揚げ直し', '揚げ直す', '揚げ直して', '揚げ直した',
-  ];
   const DRY_SAFE_KEYWORDS = ['乾麺', '乾き物', '乾物', 'せんべい', 'クッキー', 'ビスケット', '飴', 'キャンディ', 'ポップコーン', 'スナック', 'ドライフルーツ', '焼き菓子', '駄菓子', 'チップス', 'ナッツ', 'コーヒー粉', 'ドリップパック', '茶葉', 'ティーバッグ'];
 
   function containsAny(text, keywords) {
@@ -884,13 +876,10 @@
   function checkIngredientsLive() {
     const { foodName, ing1, ing2, ing3 } = getFoodNameAndIngredients();
     const cookingOther = document.getElementById('cookingMethodOther')?.value.trim() || '';
-    const prepDetail = document.getElementById('prepDetail')?.value.trim() || '';
     const cookingMethod = document.querySelector('input[name="cookingMethod"]:checked')?.value || null;
     const fields = [foodName, ing1, ing2, ing3, cookingOther];
 
     const ingList = [ing1, ing2, ing3];
-    // ingredients欄だけでなく、その他欄・仕込み内容にハム/チーズ等が書かれるケースも拾う
-    const extendedFields = [...ingList, cookingOther, prepDetail];
     // 材料欄に関する指摘は、最初に見つかった1件だけでなく該当する分をすべて集めて表示する
     const issues = [];
 
@@ -905,18 +894,20 @@
       issues.push('ご飯をその場でよそるのは許可が下りません。パック詰めしたものを販売か、クスクスなどに変更して下さい。');
     }
 
-    if (detectHamCheese(extendedFields).length > 0) {
+    // ハム/チーズ・ホイップクリーム・ドリッパーは材料欄自体に書かれている分だけをここで拾う。
+    // その他調理方法欄・仕込み内容欄に書かれた分は、それぞれ checkCookingMethodLive／checkPrepDetailLive 側で拾う
+    // （材料欄に誤って表示されないように）。
+    if (detectHamCheese(ingList).length > 0) {
       issues.push('「ハム」「チーズ」を記載すると通らないことが多いです。許可をもらうため、他の食材を記入してください。');
     }
-    if (detectVagueFillingWord([...ingList, cookingOther])) {
-      // 「具材」は仕込み内容側で専用チェックするので、ここでは仕込み内容を対象にしない
-      issues.push('「具材」だけだと許可が通らないことが多いため、具体的な食材を2つほど記載してください。');
-    }
-    if (detectNonPlantWhipCream(extendedFields)) {
+    if (detectNonPlantWhipCream(ingList)) {
       issues.push('ホイップクリームは許可をもらうため、「植物性ホイップクリーム」と記入してください。');
     }
-    if (detectNonDisposableDripper(extendedFields)) {
+    if (detectNonDisposableDripper(ingList)) {
       issues.push('ドリッパーは「使い捨て」か「市販のカセット式」以外は使用できません。（使い捨てドリッパーは30円で目黒マルシェで販売しています）。');
+    }
+    if (detectVagueFillingWord(ingList)) {
+      issues.push('「具材」だけだと許可が通らないことが多いため、具体的な食材を2つほど記載してください。');
     }
 
     if (isCoffeeFoodName(foodName) && detectCoffeeBeanWording(ingList)) {
@@ -987,10 +978,10 @@
       const { foodName, ing1, ing2, ing3 } = getFoodNameAndIngredients();
       const rawText = [foodName, ing1, ing2, ing3].filter(Boolean).join(' ');
       const rawHit = containsAny(rawText, RAW_OR_HEAT_NEEDED_KEYWORDS);
-      // 「その他」は自由記述に加熱を示す言葉があれば加熱調理とみなす（固定の調理方法以外は一律NGにすると、
-      // その他を選んで「食材を焼く」等と具体的に書いても永久に解除できなくなるため）
+      // 「その他」は、具体的な調理方法欄に何か書かれていて「温める」系の曖昧な言葉でなければ加熱調理とみなす
+      // （単語の完全一致を要求すると、単語が抜けるたびに正しく加熱を書いても弾かれるため）
       const isHeated = HEAT_COOKING_METHODS.includes(selected)
-        || (selected === 'other' && Boolean(containsAny(coffeeOtherText, HEAT_WORD_KEYWORDS)));
+        || (selected === 'other' && Boolean(coffeeOtherText) && !detectWeakHeatWord(coffeeOtherText));
       if (rawHit && !isHeated) {
         setError('cookingMethod', rawFoodMessage(rawText));
         return;
@@ -1003,6 +994,22 @@
       const { foodName, ing1, ing2, ing3 } = getFoodNameAndIngredients();
       if (other && detectBoilWord(other)) {
         setError('cookingMethodOther', '茹でる（大量の水を使う調理）は許可が通りません。「煮る」を選択してください。');
+        return;
+      }
+      if (other && detectVagueFillingWord(other)) {
+        setError('cookingMethodOther', '「具材」だけだと許可が通らないことが多いため、具体的な食材を2つほど記載してください。');
+        return;
+      }
+      if (other && detectHamCheese(other).length > 0) {
+        setError('cookingMethodOther', '「ハム」「チーズ」を記載すると通らないことが多いです。許可をもらうため、他の食材を記入してください。');
+        return;
+      }
+      if (other && detectNonPlantWhipCream(other)) {
+        setError('cookingMethodOther', 'ホイップクリームは許可をもらうため、「植物性ホイップクリーム」と記入してください。');
+        return;
+      }
+      if (other && detectNonDisposableDripper(other)) {
+        setError('cookingMethodOther', 'ドリッパーは「使い捨て」か「市販のカセット式」以外は使用できません。（使い捨てドリッパーは30円で目黒マルシェで販売しています）。');
         return;
       }
       if (other && detectWeakHeatWord(other)) {
@@ -1053,6 +1060,18 @@
     }
     if (detectVagueFillingWord(detail)) {
       setError('prepDetail', '「具材」だけだと許可が通らないことが多いため、具体的な食材を2つほど記載してください。');
+      return;
+    }
+    if (detectHamCheese(detail).length > 0) {
+      setError('prepDetail', '「ハム」「チーズ」を記載すると通らないことが多いです。許可をもらうため、他の食材を記入してください。');
+      return;
+    }
+    if (detectNonPlantWhipCream(detail)) {
+      setError('prepDetail', 'ホイップクリームは許可をもらうため、「植物性ホイップクリーム」と記入してください。');
+      return;
+    }
+    if (detectNonDisposableDripper(detail)) {
+      setError('prepDetail', 'ドリッパーは「使い捨て」か「市販のカセット式」以外は使用できません。（使い捨てドリッパーは30円で目黒マルシェで販売しています）。');
       return;
     }
     // 茹でる禁止は現場（出店ブース）の設備制約が理由なので、許可施設で行う仕込みには適用しない
