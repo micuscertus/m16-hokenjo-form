@@ -471,7 +471,7 @@
             <label class="radio-option"><input type="radio" name="cookingMethod" value="other">その他</label>
           </div>
           <div class="field-error"></div>
-          <div class="soft-notice" id="coffeeExtractionNotice">コーヒーの抽出方法をご確認ください。上の選択肢で「使い捨てドリッパーで一杯ずつ抽出する」を選んでください。該当しない場合はこのままで構いません。</div>
+          <div class="soft-notice" id="coffeeExtractionNotice">コーヒーの抽出方法をご確認ください。調理方法で「使い捨てドリッパーで一杯ずつ抽出する」を選んでください。該当しない場合はこのままで構いません。</div>
 
           <div class="sub-field hidden" id="cookingOtherSub">
             <div class="field" data-field="cookingMethodOther">
@@ -768,9 +768,9 @@
   // 材料欄に何を書くべきか・調理方法で何を選ぶべきかまで具体的に示す（紅茶）。珈琲は暫定で汎用文言のまま
   function bulkBrewedDrinkMessage(type) {
     if (type === 'tea') {
-      return '茶葉の使用は許可がおりません。許可をもらうため、食材には「市販のティーバッグ」と記載して、下の調理方法は「市販のティーバッグで一杯ずつ抽出する」を選択してください。';
+      return '茶葉の使用は許可がおりません。許可をもらうため、食材には「市販のティーバッグ」と記載して、調理方法は「市販のティーバッグで一杯ずつ抽出する」を選択してください。';
     }
-    return 'まとめて作り置きは許可がおりません。許可をもらうため、下の調理方法で「使い捨てドリッパーで一杯ずつ抽出する」を選択してください。';
+    return 'まとめて作り置きは許可がおりません。許可をもらうため、調理方法で「使い捨てドリッパーで一杯ずつ抽出する」を選択してください。';
   }
 
   // コーヒー関連ルールは全て「取扱食品名にコーヒー/珈琲/coffeeが含まれる」場合のみ適用する
@@ -1044,6 +1044,11 @@
     const selected = document.querySelector('input[name="storage"]:checked')?.value;
     if (selected !== 'normal') {
       if (selected) setError('storage', null);
+      return;
+    }
+    const cookingMethod = document.querySelector('input[name="cookingMethod"]:checked')?.value;
+    if (SINGLE_SERVE_COOKING_METHODS.includes(cookingMethod)) {
+      setError('storage', null);
       return;
     }
     const { foodName, ing1, ing2, ing3 } = getFoodNameAndIngredients();

@@ -180,9 +180,9 @@ function detectBulkBrewedDrink(d) {
 // 材料欄に何を書くべきか・調理方法で何を選ぶべきかまで具体的に示す（紅茶）。珈琲は暫定で汎用文言のまま
 function bulkBrewedDrinkMessage(type) {
   if (type === 'tea') {
-    return '茶葉の使用は許可がおりません。許可をもらうため、食材には「市販のティーバッグ」と記載して、下の調理方法は「市販のティーバッグで一杯ずつ抽出する」を選択してください。';
+    return '茶葉の使用は許可がおりません。許可をもらうため、食材には「市販のティーバッグ」と記載して、調理方法は「市販のティーバッグで一杯ずつ抽出する」を選択してください。';
   }
-  return 'まとめて作り置きは許可がおりません。許可をもらうため、下の調理方法で「使い捨てドリッパーで一杯ずつ抽出する」を選択してください。';
+  return 'まとめて作り置きは許可がおりません。許可をもらうため、調理方法で「使い捨てドリッパーで一杯ずつ抽出する」を選択してください。';
 }
 
 // コーヒー関連ルールは全て「取扱食品名にコーヒー/珈琲/coffeeが含まれる」場合のみ適用する
@@ -463,7 +463,9 @@ function validateSubmission(d) {
     if (d.storage === 'other' && isBlank(d.storageOther)) {
       errors.storageOther = '保存方法の「その他」の内容を入力してください。';
     }
-    if (d.storage === 'normal' && !errors.foodName) {
+    // 単杯抽出専用の固定選択肢（SINGLE_SERVE_COOKING_METHODS）は、都度その場で抽出するティーバッグ・
+    // コーヒー粉自体の保存を指しており、これらは元々乾燥した常温保存可能な材料のため、常温警告の対象外とする
+    if (d.storage === 'normal' && !errors.foodName && !SINGLE_SERVE_COOKING_METHODS.includes(d.cookingMethod)) {
       const dryHit = containsAny([d.foodName, ...(d.ingredients || [])].filter(Boolean).join(' '), DRY_SAFE_KEYWORDS);
       if (!dryHit) {
         errors.storage = '常温保存が適さない可能性があります。乾麺・乾き物など水分が少なく傷みにくい食品でなければ、冷蔵または冷凍を選んでください。';
