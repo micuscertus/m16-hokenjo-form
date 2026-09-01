@@ -538,12 +538,6 @@
           <div class="field-error"></div>
         </div>
 
-        <div class="field" data-field="supplierName">
-          <label>仕入先の名前</label>
-          <input type="text" id="supplierName" placeholder="例：マルニャン物産">
-          <div class="field-error"></div>
-        </div>
-
         <div class="field" data-field="selfMade">
           <label>仕入れ先</label>
           <div class="radio-group">
@@ -563,8 +557,13 @@
           </div>
 
           <div class="sub-field hidden" id="selfMadeNoSub">
+            <div class="field" data-field="supplierName">
+              <label>仕入先の名前</label>
+              <input type="text" id="supplierName" placeholder="例：マルニャン物産" style="margin-bottom:8px">
+              <div class="field-error"></div>
+            </div>
             <div class="field" data-field="supplierAddress">
-              <label>材料の購入先（住所）</label>
+              <label>仕入先の住所</label>
               <div class="help">国内の仕入先住所を記載してください。</div>
               <input type="text" id="supplierAddress" placeholder="例：目黒区目黒1-2-3">
               <div class="field-error"></div>

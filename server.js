@@ -536,8 +536,6 @@ function validateSubmission(d) {
     } else if (!/^[0-9]+$/.test(String(d.servingCount).trim())) {
       errors.servingCount_r = '提供数は数字で入力してください。';
     }
-    if (isBlank(d.supplierName)) errors.supplierName = '仕入先の名前を入力してください。';
-
     if (d.selfMade !== 'yes' && d.selfMade !== 'no') {
       errors.selfMade = '自社製造か他社からの仕入れかを選んでください。';
     } else if (d.selfMade === 'yes') {
@@ -545,7 +543,9 @@ function validateSubmission(d) {
         errors.facility = '自社製造の場合、製造許可のある施設の名称と住所を両方入力してください。';
       }
     } else if (d.selfMade === 'no') {
-      if (isBlank(d.supplierAddress)) {
+      if (isBlank(d.supplierName)) {
+        errors.supplierName = '仕入先の名前を入力してください。';
+      } else if (isBlank(d.supplierAddress)) {
         errors.supplierAddress = '仕入先の住所を入力してください。';
       } else {
         const overseas = containsAny(d.supplierAddress, OVERSEAS_KEYWORDS);
