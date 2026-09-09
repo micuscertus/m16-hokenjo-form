@@ -401,7 +401,7 @@ function validateSubmission(d) {
       } else {
         const overseas = containsAny(d.ingredientSourceAddress, OVERSEAS_KEYWORDS);
         if (overseas) {
-          errors.ingredientSourceAddress = `購入先住所に「${overseas}」が含まれています。国内の仕入れ先の名前・住所を記載してください。`;
+          errors.ingredientSourceAddress = `購入先住所に「${overseas}」が含まれています。国内の代理店の名前を記入してください。`;
         }
       }
     }
@@ -550,7 +550,7 @@ function validateSubmission(d) {
       } else {
         const overseas = containsAny(d.supplierAddress, OVERSEAS_KEYWORDS);
         if (overseas) {
-          errors.supplierAddress = `仕入先住所に「${overseas}」が含まれています。国内の仕入れ先の名前・住所を記載してください。`;
+          errors.supplierAddress = `仕入先住所に「${overseas}」が含まれています。国内の代理店の名前を記入してください。`;
         }
       }
     }
