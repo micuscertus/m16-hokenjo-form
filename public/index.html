@@ -445,13 +445,15 @@
             <div class="ng-example">許可施設でカットした場合でも、生のまま提供することは許可が通らないので、当日必ず加熱調理すると記入すること。</div>
             <div class="field" data-field="prepFacility">
               <label>仕込みを行う施設の名称・住所</label>
-              <input type="text" id="prepFacilityName" placeholder="施設名（例：同上）" style="margin-bottom:8px">
-              <input type="text" id="prepFacilityAddress" placeholder="施設住所（例：同上）">
+              <div class="help">出店者の住所・氏名と同じ場合も、省略せずそのまま記入してください（「同上」等の省略は不可）。</div>
+              <input type="text" id="prepFacilityName" placeholder="施設名（例：〇〇キッチン）" style="margin-bottom:8px">
+              <input type="text" id="prepFacilityAddress" placeholder="施設住所（例：東京都目黒区目黒1-2-3）">
               <div class="field-error"></div>
             </div>
             <div class="field" data-field="prepDetail">
               <label>当日仕込み内容</label>
               <div class="help">許可施設で何をするかを具体的に書いてください。</div>
+              <div class="help">当日の仕込みで焼く煮るなどの調理はできません。</div>
               <textarea id="prepDetail" placeholder="例：干しシイタケを水で戻しておく"></textarea>
               <div class="field-error"></div>
             </div>
@@ -551,9 +553,25 @@
           <div class="sub-field hidden" id="selfMadeYesSub">
             <div class="field" data-field="facility">
               <label>製造許可施設の名称・住所</label>
-              <input type="text" id="facilityName" placeholder="施設名（例：同上）" style="margin-bottom:8px">
-              <input type="text" id="facilityAddress" placeholder="施設住所（例：同上）">
+              <div class="help">出店者の住所・氏名と同じ場合も、省略せずそのまま記入してください（「同上」等の省略は不可）。</div>
+              <input type="text" id="facilityName" placeholder="施設名（例：〇〇キッチン）" style="margin-bottom:8px">
+              <input type="text" id="facilityAddress" placeholder="施設住所（例：東京都目黒区目黒1-2-3）">
               <div class="field-error"></div>
+            </div>
+
+            <div class="field" data-field="licenseType">
+              <label>製造許可の業種（あてはまるものすべてにチェック）</label>
+              <label class="checkbox-option"><input type="checkbox" name="licenseType" value="kashi">菓子製造業の許可有</label>
+              <label class="checkbox-option"><input type="checkbox" name="licenseType" value="sozai">惣菜製造業の許可有</label>
+              <label class="checkbox-option"><input type="checkbox" name="licenseType" value="mippu">密封包装食品製造業の許可有</label>
+              <label class="checkbox-option"><input type="checkbox" name="licenseType" value="ice">アイスクリーム類製造業の許可有</label>
+              <label class="checkbox-option"><input type="checkbox" name="licenseType" value="nyu">乳製品製造業の許可有</label>
+              <label class="checkbox-option"><input type="checkbox" name="licenseType" value="shokuniku">食肉製品製造業の許可有</label>
+              <label class="checkbox-option"><input type="checkbox" name="licenseType" value="other">その他</label>
+              <div class="field-error"></div>
+              <div class="sub-field hidden" id="licenseTypeOtherSub">
+                <input type="text" id="licenseTypeOther" placeholder="例：豆腐製造業の許可有">
+              </div>
             </div>
           </div>
 
@@ -1208,6 +1226,14 @@
     });
   });
 
+  // 製造許可の業種「その他」サブフィールド
+  document.querySelectorAll('input[name="licenseType"]').forEach((el) => {
+    el.addEventListener('change', () => {
+      const checkedOther = document.querySelector('input[name="licenseType"][value="other"]')?.checked;
+      document.getElementById('licenseTypeOtherSub').classList.toggle('hidden', !checkedOther);
+    });
+  });
+
   // ブラウザの戻る/再読み込みで前回の入力が残っていることがあるため、
   // 読み込み時に必ず未選択・未入力の状態にリセットする
   function resetFormOnLoad() {
@@ -1265,6 +1291,8 @@
       d.selfMade = document.querySelector('input[name="selfMade"]:checked')?.value || null;
       d.facilityName = document.getElementById('facilityName').value.trim();
       d.facilityAddress = document.getElementById('facilityAddress').value.trim();
+      d.licenseType = Array.from(document.querySelectorAll('input[name="licenseType"]:checked')).map((el) => el.value);
+      d.licenseTypeOther = document.getElementById('licenseTypeOther').value.trim();
       d.supplierAddress = document.getElementById('supplierAddress').value.trim();
       d.packagingConfirmed = document.getElementById('packagingConfirmed').checked;
       d.isFrozen = document.getElementById('isFrozen').checked;

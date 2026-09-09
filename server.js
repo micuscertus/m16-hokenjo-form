@@ -28,6 +28,10 @@ const COOKING_METHOD_LABELS = {
 const SINGLE_SERVE_COOKING_METHODS = ['tea_bag', 'coffee_dripper'];
 const STORAGE_LABELS = { normal: '常温', cold: '冷蔵（クーラーBOX等）', frozen: '冷凍' };
 const SERVE_METHOD_LABELS = { disposable: '使い捨て容器にて提供', cup: '使い捨てカップにて提供' };
+const LICENSE_TYPE_LABELS = {
+  kashi: '菓子製造業', sozai: '惣菜製造業', mippu: '密封包装食品製造業',
+  ice: 'アイスクリーム類製造業', nyu: '乳製品製造業', shokuniku: '食肉製品製造業',
+};
 
 const app = express();
 app.use(express.json());
@@ -411,7 +415,14 @@ function validateSubmission(d) {
     } else if (d.prep === 'onsite') {
       if (isBlank(d.prepFacilityName) || isBlank(d.prepFacilityAddress)) {
         errors.prepFacility = '仕込みを行う施設の名称と住所を入力してください。';
+      } else if (d.prepFacilityName.trim() === '同上' || d.prepFacilityAddress.trim() === '同上') {
+        errors.prepFacility = '出店者の住所・氏名と同じ場合も、「同上」ではなく省略せずそのまま記入してください。';
       }
+      // フォーム上には「当日の仕込みで焼く煮るなどの調理はできません」という案内文を出しているが、
+      // 機械チェックでは強制していない（意図的）。既存の「茹でる」チェックは仕込み内容欄を対象外に
+      // している（許可施設で行う前提のため）という設計と衝突する可能性があり、YAMAから明示的な
+      // バリデーション追加の指示もなかったため、案内文の追加のみにとどめた。将来ここに加熱動詞の
+      // 機械チェックを足す場合は、この既存の茹でる除外ロジックとの整合性を先に確認すること
       if (isBlank(d.prepDetail)) {
         errors.prepDetail = '当日仕込み内容を具体的に入力してください。';
       } else if (detectVagueFillingWord(d.prepDetail)) {
@@ -541,6 +552,13 @@ function validateSubmission(d) {
     } else if (d.selfMade === 'yes') {
       if (isBlank(d.facilityName) || isBlank(d.facilityAddress)) {
         errors.facility = '自社製造の場合、製造許可のある施設の名称と住所を両方入力してください。';
+      } else if (d.facilityName.trim() === '同上' || d.facilityAddress.trim() === '同上') {
+        errors.facility = '出店者の住所・氏名と同じ場合も、「同上」ではなく省略せずそのまま記入してください。';
+      }
+      if (!d.licenseType || d.licenseType.length === 0) {
+        errors.licenseType = '製造許可の業種を1つ以上選んでください。';
+      } else if (d.licenseType.includes('other') && isBlank(d.licenseTypeOther)) {
+        errors.licenseType = '「その他」を選んだ場合は許可の業種を具体的に入力してください。';
       }
     } else if (d.selfMade === 'no') {
       if (isBlank(d.supplierName)) {
@@ -592,6 +610,7 @@ const FIELD_LABELS = {
   storage: '保存方法', storageOther: '保存方法の内容',
   serveMethod: '提供方法', serveMethodOther: 'その他の提供方法',
   supplierName: '仕入先の名前', selfMade: '仕入れ先', facilityName: '施設名', facilityAddress: '施設住所', supplierAddress: '仕入先の住所',
+  licenseType: '製造許可の業種', licenseTypeOther: 'その他の製造許可の業種',
   packagingConfirmed: '包装済み完成品を販売する', isFrozen: '冷凍食品を扱う', frozenLabelConfirmed: '冷凍食品である旨の表示がある',
 };
 
@@ -600,6 +619,7 @@ function humanizeSubmission(d) {
   if (d.cookingMethod) h.cookingMethod = COOKING_METHOD_LABELS[d.cookingMethod] || (d.cookingMethod === 'other' ? 'その他（具体的な調理方法欄を参照）' : d.cookingMethod);
   if (d.storage) h.storage = STORAGE_LABELS[d.storage] || (d.storage === 'other' ? 'その他（保存方法の内容欄を参照）' : d.storage);
   if (Array.isArray(d.serveMethod)) h.serveMethod = d.serveMethod.map((m) => SERVE_METHOD_LABELS[m] || (m === 'other' ? 'その他（その他の提供方法欄を参照）' : m));
+  if (Array.isArray(d.licenseType)) h.licenseType = d.licenseType.map((m) => LICENSE_TYPE_LABELS[m] || (m === 'other' ? 'その他（その他の製造許可の業種欄を参照）' : m));
   if (d.businessType) h.businessType = d.businessType === 'restaurant' ? '飲食店' : d.businessType === 'retail' ? '食品物販' : d.businessType;
   if (d.ingredientSourceType) {
     h.ingredientSourceType = d.ingredientSourceType === 'selfmade'
@@ -657,7 +677,7 @@ async function aiSemanticCheck(d) {
 - 「具材」という曖昧な記載の指摘
 - ホイップクリームの植物性明記漏れの指摘
 - クレープの現地調理（前日仕込み・温め提供は不可）の指摘
-- 仕込み先・自家製造施設・清涼飲料水製造許可施設など、施設の名称・住所を尋ねるどの欄であっても「同上」と記載されている点の指摘（出店者自身の住所・店名が、既に許可を得た施設であることを示す一般的な書き方のため問題ない）
+- 清涼飲料水製造許可施設の名称・住所欄に「同上」と記載されている点の指摘（出店者自身の住所・店名が、既に許可を得た施設であることを示す一般的な書き方のため問題ない。ただし仕込み先施設・自家製造施設（物販）の名称・住所欄は「同上」を機械チェックで別途ブロックしているため対象外）
 - 材料の仕入れ区分が「保健所許可のある場所で自家製造する」の場合に、施設名・施設住所が空欄・未記載である点の指摘（このフォームには自家製造を選んだ場合の施設名・住所を入力する欄自体が存在せず、出店者自身の住所・店名が施設情報を兼ねる設計のため、空欄で問題ない。記入を求める指摘は出店者が対応できないので絶対にしないこと）
 - 調理方法・その他調理方法欄に何らかの加熱調理を示す記載があり、それが「温める」「あたためる」という言葉自体でない場合、その加熱が実質的に「温める」と同じ行為ではないか、加熱の程度が十分か、といった深読みした指摘（仕込み済みの食品を会場で再加熱する場合であっても、「温める」という言葉さえ使っていなければ表現として十分なので、それ以上の具体性・詳しさは求めない）
 - 保存方法の欄は既に確認済みです。仕込みから会場までの運搬中の温度管理・輸送方法について、仕込み内容欄等に追加の説明を求める指摘はしないでください
@@ -665,6 +685,7 @@ async function aiSemanticCheck(d) {
 - 材料（野菜・海鮮・生の果物・肉類・麺類・卵など）が十分に加熱されているかどうかの判断・指摘（機械チェックとフォーム上の案内文で別途対応済みのため対象外。AIチェックでは一切判断しないこと）
 - ひき肉から成形する必要がある食品（ハンバーグ等）について、仕込みが「仕込みなし」になっている場合に、生のひき肉から成形したのか市販の成形済み品を使っているのかを尋ねたり、成形作業は仕込みとして記載が必要ではないかと指摘したりすること（「仕込みなし」が選ばれている時点で、現地では成形等の下ごしらえを行わない前提として扱ってよい）
 - コーヒー豆を当日・会場でその場で挽く／粉にする点の判断・指摘（機械チェックで別途対応済みのため対象外。「豆」をその場に持ち込んで挽く旨が明記されている場合のみ、機械チェック側で判定するので、AIチェックでは一切判断しないこと。材料欄と他の欄の記載の整合性については最重要ルール２を参照）
+- 物販で選択された製造許可の業種（菓子製造業・惣菜製造業等）が、取扱食品名や材料欄の内容と一致しているか・妥当かどうかの判断・指摘（出店者が実際に保有している許可を自己申告する欄であり、AIが取扱食品との組み合わせの妥当性を判断する対象ではありません。一見結びつきが薄く見える組み合わせでも、絶対に指摘しないでください）
 
 指摘してほしいのは、たとえば以下のような機械的チェックをすり抜ける矛盾です:
 - 食品名と調理方法が明らかに矛盾している（例：トーストと書いてあるのに調理方法が「蒸す」）
@@ -918,6 +939,7 @@ async function renderSubmissionPdfBuffer(d, dateText) {
       '{{物販仕入区分}}': '□  A 購入 □  B 許可のある施設で製造したものを販売',
       '{{物販仕入先名前}}': '',
       '{{物販仕入先住所}}': '',
+      '{{物販許可業種}}': '',
       '{{物販販売方法}}': '',
       '{{物販冷凍表示}}': '',
       '{{物販保存方法}}': '',
@@ -942,6 +964,7 @@ async function renderSubmissionPdfBuffer(d, dateText) {
         : '☑  A 購入 □  B 許可のある施設で製造したものを販売',
       '{{物販仕入先名前}}': d.selfMade === 'yes' ? d.facilityName : d.supplierName,
       '{{物販仕入先住所}}': d.selfMade === 'yes' ? d.facilityAddress : d.supplierAddress,
+      '{{物販許可業種}}': d.selfMade === 'yes' ? (d.licenseType || []).map((m) => LICENSE_TYPE_LABELS[m] || d.licenseTypeOther).join('、') : '',
       '{{物販販売方法}}': d.packagingConfirmed ? '☑ 包装済み完成品を販売する（表示ラベルあり）' : '□ 包装済み完成品を販売する（表示ラベルあり）',
       '{{物販冷凍表示}}': (d.isFrozen && d.frozenLabelConfirmed) ? '／☑冷凍食品である旨の表示あり' : '',
       '{{物販保存方法}}': STORAGE_LABELS[d.storage] || d.storageOther || '',
