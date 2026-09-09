@@ -632,10 +632,12 @@ function validateSubmission(d) {
       }
     }
 
-    // コーヒー豆をその場で挽くのは不可（②③個別チェックをすり抜けるケースの最終防衛線として、
-    // 材料・器具・動作の自由記述欄をまとめて再チェックする）
+    // コーヒー豆をその場で挽くのは不可（②③個別チェック・仕込み内容欄チェックをすり抜けるケースの
+    // 最終防衛線として、材料・器具・動作の自由記述欄と仕込み内容欄をまとめて再チェックする。
+    // 「コーヒー」の語と「挽く」の語が別々の欄に分かれて書かれると、個別チェックのどちらにも
+    // 引っかからず素通りすることが監査で指摘されたため、prepDetailもここに含める）
     if (!errors.ingredients && !errors.cookingIngredientOther && !errors.cookingToolOther && !errors.cookingActionOther
-      && detectGroundOnSiteCoffee([d.foodName, ...(d.ingredients || []), d.cookingIngredientOther, d.cookingToolOther, d.cookingActionOther])) {
+      && detectGroundOnSiteCoffee([d.foodName, ...(d.ingredients || []), d.cookingIngredientOther, d.cookingToolOther, d.cookingActionOther, d.prepDetail])) {
       errors.ingredients = '豆をその場で粉にすることを記載すると通りません。';
     }
 
@@ -840,7 +842,6 @@ async function aiSemanticCheck(d) {
     ? {
       ...d,
       prepDetail: stripCoffeeBeanProcessWording(d.prepDetail),
-      cookingMethodOther: stripCoffeeBeanProcessWording(d.cookingMethodOther),
       cookingIngredientOther: stripCoffeeBeanProcessWording(d.cookingIngredientOther),
       cookingToolOther: stripCoffeeBeanProcessWording(d.cookingToolOther),
       cookingActionOther: stripCoffeeBeanProcessWording(d.cookingActionOther),

@@ -1321,7 +1321,8 @@
         checkDrinkPermitFacilityLive(drinkHit);
       }
 
-      const otherJoined = [d.cookingIngredientOther, d.cookingToolOther, d.cookingActionOther].filter(Boolean).join(' ');
+      const prepDetailText = document.getElementById('prepDetail')?.value.trim() || '';
+      const otherJoined = [d.cookingIngredientOther, d.cookingToolOther, d.cookingActionOther, prepDetailText].filter(Boolean).join(' ');
       if (detectGroundOnSiteCoffee(foodName, ing1, ing2, ing3, otherJoined)) {
         setError('ingredients', '豆をその場で粉にすることを記載すると通りません。');
       }
