@@ -400,6 +400,8 @@ function clearIrrelevantFields(d) {
     d.supplierName = '';
     d.supplierAddress = '';
   }
+  if (!Array.isArray(d.serveMethod) || !d.serveMethod.includes('other')) d.serveMethodOther = '';
+  if (!Array.isArray(d.licenseType) || !d.licenseType.includes('other')) d.licenseTypeOther = '';
   return d;
 }
 

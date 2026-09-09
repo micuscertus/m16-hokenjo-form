@@ -1547,6 +1547,7 @@
     el.addEventListener('change', () => {
       const checkedOther = document.querySelector('input[name="serveMethod"][value="other"]')?.checked;
       document.getElementById('serveMethodOtherSub').classList.toggle('hidden', !checkedOther);
+      if (!checkedOther) clearFieldValues(['serveMethodOther']);
     });
   });
 
@@ -1555,6 +1556,7 @@
     el.addEventListener('change', () => {
       const checkedOther = document.querySelector('input[name="licenseType"][value="other"]')?.checked;
       document.getElementById('licenseTypeOtherSub').classList.toggle('hidden', !checkedOther);
+      if (!checkedOther) clearFieldValues(['licenseTypeOther']);
     });
   });
 
