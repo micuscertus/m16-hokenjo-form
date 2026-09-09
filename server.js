@@ -33,6 +33,60 @@ const LICENSE_TYPE_LABELS = {
   ice: 'アイスクリーム類製造業', nyu: '乳製品製造業', shokuniku: '食肉製品製造業',
 };
 
+// ===== 調理方法欄の再設計（①材料②器具③動作）用のラベル・ヘルパー（実装ステップ1） =====
+// 保健所への実地相談で「①材料を②器具で③動作する」という文章で書いてほしいと指摘されたことを受けた
+// 再設計。加熱の動作（焼く・煮る等）とドリンクの抽出方法（一杯ずつ抽出する等）が旧cookingMethod欄で
+// 混在していたことが、セッション中に繰り返したコーヒー・紅茶関連の誤検知の根本原因だった。
+// この段階ではラベル定義とヘルパー関数のみを追加し、既存のcookingMethod系バリデーションには
+// まだ接続しない（挙動は変わらない）。詳細な移行計画は/Users/takeshiyamamoto/.claude/plans/
+// tender-questing-dolphin.md を参照
+const COOKING_INGREDIENT_LABELS = {
+  tea_bag: '市販のティーバッグ',
+  coffee_powder: 'コーヒー粉',
+};
+const COOKING_TOOL_LABELS = {
+  grill_pan: '鉄板', frying_pan: 'フライパン', pot: '鍋', fryer: 'フライヤー', steamer: '蒸し器', open_flame: '直火',
+  cup: '使い捨てカップ', dripper: '使い捨てドリッパー', dripper_cassette: '市販のカセット式ドリッパー',
+};
+const COOKING_ACTION_LABELS = {
+  grill: '焼く', boil: '煮る', fry: '揚げる', steam: '蒸す', extract_per_cup: '一杯ずつ抽出する',
+};
+// 常温保存でも問題ない①材料（DRY_SAFE_KEYWORDSの茶葉・コーヒー粉と対応する新スキーマ版）
+const SINGLE_SERVE_INGREDIENTS = ['tea_bag', 'coffee_powder'];
+// 実際に加熱する③動作（これ以外は「加熱した」と見なさない。ドリンクの抽出系動作は対象外）
+const HEAT_COOKING_ACTIONS = ['grill', 'boil', 'fry', 'steam'];
+
+// 食品名・材料からコーヒー/紅茶等のドリンクかどうかを判定する（UIの初期トグル状態の決定にのみ使う。
+// 出店者が手動でトグルを切り替えた場合は、この判定結果より出店者の選択を常に優先する設計。
+// 「コーヒーゼリー」のような固形食品の誤判定を許容し、必ず手動で上書きできることを前提にしている）
+function detectDrinkCategory(foodName, ingredients) {
+  const text = [foodName, ...(ingredients || [])].filter(Boolean).join(' ');
+  return isCoffeeFoodName(foodName) || Boolean(containsAny(text, TEA_KEYWORDS)) || Boolean(containsAny(text, COFFEE_KEYWORDS));
+}
+
+// コーヒー粉を選びつつ、器具に使い捨てカップのみ（ドリッパーなし）を選んだ場合は抽出できないため弾く
+function detectMissingCoffeeDripper(d) {
+  return d.cookingCategory === 'drink' && d.cookingIngredient === 'coffee_powder' && d.cookingTool === 'cup';
+}
+
+// 調理方法欄①②③をPDF・確認メール用の1文に合成する（「①を②で③する」の形）
+function composeCookingMethodText(d) {
+  if (d.businessType !== 'restaurant') return '';
+  if (!d.cookingCategory && !d.cookingTool && !d.cookingAction && (d.cookingMethod || d.cookingMethodOther)) {
+    // 旧スキーマ（cookingMethod/cookingMethodOther）のまま保存されている既存データ向けの暫定
+    // フォールバック。計画上はステップ5（既存データ移行）で入れる予定だったが、この関数を
+    // 2回書き直す手間を避けるためステップ1の時点で先に組み込んだ（監査指摘を受けて明記）。
+    // 移行が完了したら削除してよい（tender-questing-dolphin.md ステップ5参照）
+    return COOKING_METHOD_LABELS[d.cookingMethod] || d.cookingMethodOther || '';
+  }
+  const toolLabel = d.cookingTool === 'other' ? d.cookingToolOther : COOKING_TOOL_LABELS[d.cookingTool];
+  const actionLabel = d.cookingAction === 'other' ? d.cookingActionOther : COOKING_ACTION_LABELS[d.cookingAction];
+  const materialLabel = d.cookingCategory === 'drink'
+    ? ((d.cookingIngredient === 'other' ? d.cookingIngredientOther : COOKING_INGREDIENT_LABELS[d.cookingIngredient]) || '材料')
+    : '食材';
+  return `${materialLabel}を${toolLabel || ''}で${actionLabel || ''}`;
+}
+
 const app = express();
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
