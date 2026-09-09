@@ -140,7 +140,7 @@ const RAW_VEGETABLE_KEYWORDS = ['きゅうり', 'レタス', 'トマト', 'キ�
 const RAW_OTHER_KEYWORDS = ['焼きそば', 'そば', 'うどん', 'ラーメン', 'パスタ', '麺', '豚肉', '鶏肉', '牛肉', 'ひき肉', '魚', 'エビ', 'イカ', 'タコ', '卵'];
 const RAW_OR_HEAT_NEEDED_KEYWORDS = [...RAW_VEGETABLE_KEYWORDS, ...RAW_OTHER_KEYWORDS];
 function rawFoodMessage() {
-  return '生の食材は保健所の許可が通らない場合があります。調理方法で「その他」を選び、加熱する内容を明記してください。';
+  return '生の食材は保健所の許可が通らない場合があります。調理方法の③動作で「その他」を選び、加熱する内容を明記してください。';
 }
 // 実際に加熱する調理方法（これ以外は「加熱した」と見なさない）。
 // tea_bag/coffee_dripper（単杯抽出の固定選択肢）は意図的に含めていない。生の食材を
