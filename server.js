@@ -64,9 +64,23 @@ function detectDrinkCategory(foodName, ingredients) {
   return isCoffeeFoodName(foodName) || Boolean(containsAny(text, TEA_KEYWORDS)) || Boolean(containsAny(text, COFFEE_KEYWORDS));
 }
 
-// コーヒー粉を選びつつ、器具に使い捨てカップのみ（ドリッパーなし）を選んだ場合は抽出できないため弾く
+// コーヒーは「使い捨てドリッパー」「市販のカセット式ドリッパー」（固定選択肢、またはその他の
+// 自由記述にドリッパー等の単杯抽出器具が明記されている場合）以外では抽出できないため弾く。
+// 「ドリッパー系の語が無ければ疑う」という不在ベースの判定にしている（旧detectBulkBrewedDrinkの
+// 「単杯抽出の証拠が無ければ疑う」という消去法の考え方を踏襲。「まとめて」等の語を探す陽性一致
+// 方式だと、「マグカップにコーヒー粉を入れてお湯を注ぐ」のような、まとめ作りを匂わせる語を
+// 使わない記述を見逃すことが監査で指摘されたため、この方式に変更した）
 function detectMissingCoffeeDripper(d) {
-  return d.cookingCategory === 'drink' && d.cookingIngredient === 'coffee_powder' && d.cookingTool === 'cup';
+  if (d.cookingCategory !== 'drink') return false;
+  const isCoffee = d.cookingIngredient === 'coffee_powder'
+    || (d.cookingIngredient === 'other' && Boolean(containsAny(d.cookingIngredientOther, COFFEE_KEYWORDS)));
+  if (!isCoffee) return false;
+  if (d.cookingTool === 'dripper' || d.cookingTool === 'dripper_cassette') return false;
+  if (d.cookingTool === 'other') {
+    return !Boolean(containsAny(d.cookingToolOther, COFFEE_DRIPPER_KEYWORDS));
+  }
+  // cup固定、またはその他の想定外の値は全てドリッパー未確認として弾く
+  return true;
 }
 
 // 調理方法欄①②③をPDF・確認メール用の1文に合成する（「①を②で③する」の形）
@@ -218,6 +232,15 @@ function detectDrinkPermitNeeded(texts) {
 // 有無に関わらず、この語が出た時点で常に指摘する
 function detectPotBrewing(cookingMethodOther) {
   return Boolean(cookingMethodOther && cookingMethodOther.includes('ポット'));
+}
+
+// ドリンク（コーヒー・紅茶等）で、①②③の固定選択肢（単杯抽出専用）を使わず「その他」の自由記述で
+// まとめ作り・保温を示唆する記載をした場合を検知する（旧detectBulkBrewedDrinkが担っていた「まとめ作り
+// 一般」の役割を、①②③が選択肢化された新設計向けに引き継いだもの。フレンチプレスで複数杯まとめて
+// 抽出しサーバーで保温する、等の「ポット」という語を使わないまとめ作り記載を拾う）
+const BULK_DRINK_PREP_KEYWORDS = ['まとめて', '一度に', '作り置き', 'サーバーに', '保温して', '大量に'];
+function detectBulkDrinkPrep(texts) {
+  return Boolean(containsAny([].concat(texts).filter(Boolean).join(' '), BULK_DRINK_PREP_KEYWORDS));
 }
 
 // コーヒー・紅茶等をまとめて作り置きするのは不可（保健所確認済み）
@@ -413,7 +436,8 @@ function validateSubmission(d) {
       bannedHits.forEach((b) => issues.push(`「${b}」は臨時出店では使用できません。オーツミルク・豆乳など代替品に変更してください。`));
 
       // ご飯類をその場でよそう提供は不可
-      if (containsAny([d.foodName, ...ingredients, d.cookingMethodOther].filter(Boolean).join(' '), RICE_KEYWORDS) || detectPlainRiceWording([d.foodName, ...ingredients, d.cookingMethodOther])) {
+      const cookingOtherTexts = [d.cookingIngredientOther, d.cookingToolOther, d.cookingActionOther];
+      if (containsAny([d.foodName, ...ingredients, ...cookingOtherTexts].filter(Boolean).join(' '), RICE_KEYWORDS) || detectPlainRiceWording([d.foodName, ...ingredients, ...cookingOtherTexts])) {
         issues.push('ご飯をその場でよそるのは許可が下りません。パック詰めしたものを販売か、クスクスなどに変更して下さい。');
       }
 
@@ -442,7 +466,7 @@ function validateSubmission(d) {
       // シロップとしての自家製／市販の扱いは drinkPermitFacility の統一ルールで別途判定する
       // 検知対象はその他調理方法欄・仕込み内容欄まで含めるが、他のチェックと違いエラーは
       // 常にingredients欄に表示する（柑橘チェックは項目ごとに分けていない）
-      const citrusIssues = detectCitrusIssues([d.foodName, ...ingredients], [d.cookingMethodOther, d.prepDetail]);
+      const citrusIssues = detectCitrusIssues([d.foodName, ...ingredients], [...cookingOtherTexts, d.prepDetail]);
       citrusIssues.forEach((ci) => {
         issues.push(`「${ci.fruit}」は許可が通らないことが多いので、別のものを記載お願いします。`);
       });
@@ -501,36 +525,78 @@ function validateSubmission(d) {
       }
     }
 
-    if (!d.cookingMethod) {
-      errors.cookingMethod = '調理方法を1つ選んでください（2種類以上は選べません）。';
-    } else if (d.cookingMethod === 'other') {
-      if (isBlank(d.cookingMethodOther)) {
-        errors.cookingMethodOther = '「その他」を選んだ場合は具体的な調理方法を入力してください。';
-      } else if (detectBoilWord(d.cookingMethodOther)) {
-        errors.cookingMethodOther = '茹でる（大量の水を使う調理）は許可が通りません。「煮る」を選択してください。';
-      } else if (detectVagueFillingWord(d.cookingMethodOther)) {
-        errors.cookingMethodOther = '「具材」だけだと許可が通らないことが多いため、具体的な食材を2つほど記載してください。';
-      } else if (detectHamCheese(d.cookingMethodOther).length > 0) {
-        errors.cookingMethodOther = '「ハム」「チーズ」を記載すると通らないことが多いです。許可をもらうため、他の食材を記入してください。';
-      } else if (detectNonPlantWhipCream(d.cookingMethodOther)) {
-        errors.cookingMethodOther = 'ホイップクリームは許可をもらうため、「植物性ホイップクリーム」と記入してください。';
-      } else if (detectNonDisposableDripper(d.cookingMethodOther)) {
-        errors.cookingMethodOther = 'ドリッパーは「使い捨て」か「市販のカセット式」以外は使用できません。（使い捨てドリッパーは30円で目黒マルシェで販売しています）。';
-      } else if (detectWeakHeatWord(d.cookingMethodOther)) {
-        // 「温める」系の言葉は曖昧チェックにも該当するが、こちらの方が具体的なので優先する
-        const hasCrepe = [d.foodName, ...(d.ingredients || []), d.cookingMethodOther].filter(Boolean).join(' ').includes(CREPE_KEYWORD);
-        errors.cookingMethodOther = weakHeatWordMessage(hasCrepe);
-      } else if (detectGroundOnSiteCoffee([d.foodName, ...(d.ingredients || []), d.cookingMethodOther])) {
-        errors.cookingMethodOther = '豆をその場で粉にすることを記載すると通りません。';
-      } else if (detectPotBrewing(d.cookingMethodOther)) {
-        errors.cookingMethodOther = 'ポットのまとめ作りは通らない可能性が高いです。1杯ずつ提供するに変えてください。';
-      } else if (detectBulkBrewedDrink(d)) {
-        // 豆から挽いて熱湯を注ぐ系の短い記述は曖昧チェックにも該当するため、より具体的なこちらを優先する
-        errors.cookingMethodOther = bulkBrewedDrinkMessage(detectBulkBrewedDrink(d));
-      } else {
-        const vague = containsAny(d.cookingMethodOther, VAGUE_COOKING_PHRASES);
-        if (vague && d.cookingMethodOther.trim().length < 12) {
-          errors.cookingMethodOther = `「${vague}」だけでは曖昧です。「十分に加熱する」「市販のティーバッグで一杯ずつ抽出する」のように具体的な工程を明記してください。`;
+    // ===== 調理方法：①材料／②器具／③動作の3パーツ構成（旧cookingMethod/cookingMethodOtherを置き換え） =====
+    if (d.cookingCategory !== 'food' && d.cookingCategory !== 'drink') {
+      errors.cookingCategory = '「通常の調理」か「ドリンクの抽出」のどちらかを選んでください。';
+    } else {
+      // ①材料はドリンク（コーヒー・紅茶等）のときだけ必須。食品側の材料は「使う食材」欄が担うため、
+      // 食品モードでは①欄自体を出さない・チェックしない
+      if (d.cookingCategory === 'drink') {
+        if (!d.cookingIngredient) {
+          errors.cookingIngredient = '材料を選んでください。';
+        } else if (d.cookingIngredient === 'other') {
+          if (isBlank(d.cookingIngredientOther)) {
+            errors.cookingIngredientOther = '「その他」を選んだ場合は具体的な材料を入力してください。';
+          } else if (containsAny(d.cookingIngredientOther, TEA_KEYWORDS)) {
+            errors.cookingIngredientOther = 'ティーバッグ以外は許可が通らない可能性が高いです。ティーバッグに変更して記載してください。';
+          } else if (detectCoffeeBeanWording(d.cookingIngredientOther)) {
+            errors.cookingIngredientOther = 'コーヒー豆は許可が通らない可能性があるので、コーヒー粉と記載してください。';
+          }
+        }
+      }
+
+      if (!d.cookingTool) {
+        errors.cookingTool = '調理器具を選んでください。';
+      } else if (d.cookingTool === 'other') {
+        if (isBlank(d.cookingToolOther)) {
+          errors.cookingToolOther = '「その他」を選んだ場合は具体的な調理器具を入力してください。';
+        } else if (detectNonDisposableDripper(d.cookingToolOther)) {
+          errors.cookingToolOther = 'ドリッパーは「使い捨て」か「市販のカセット式」以外は使用できません。（使い捨てドリッパーは30円で目黒マルシェで販売しています）。';
+        } else if (!errors.cookingIngredient && detectMissingCoffeeDripper(d)) {
+          errors.cookingToolOther = 'コーヒー粉は使い捨てドリッパーか市販のカセット式ドリッパーがないと抽出できません。器具に明記してください。';
+        } else if (detectPotBrewing(d.cookingToolOther)) {
+          errors.cookingToolOther = 'ポットのまとめ作りは通らない可能性が高いです。1杯ずつ提供するに変えてください。';
+        } else if (d.cookingCategory === 'drink' && detectBulkDrinkPrep(d.cookingToolOther)) {
+          errors.cookingToolOther = 'まとめて作り置きは許可がおりません。1杯ずつ抽出するように変えてください。';
+        } else if (detectHamCheese(d.cookingToolOther).length > 0) {
+          errors.cookingToolOther = '「ハム」「チーズ」を記載すると通らないことが多いです。許可をもらうため、他の食材を記入してください。';
+        } else if (detectNonPlantWhipCream(d.cookingToolOther)) {
+          errors.cookingToolOther = 'ホイップクリームは許可をもらうため、「植物性ホイップクリーム」と記入してください。';
+        } else if (detectWeakHeatWord(d.cookingToolOther)) {
+          const hasCrepe = [d.foodName, ...(d.ingredients || []), d.cookingToolOther].filter(Boolean).join(' ').includes(CREPE_KEYWORD);
+          errors.cookingToolOther = weakHeatWordMessage(hasCrepe);
+        }
+      } else if (!errors.cookingIngredient && detectMissingCoffeeDripper(d)) {
+        // コーヒー粉は使い捨てカップだけでは抽出できない（ドリッパーが別途必要）
+        errors.cookingTool = 'コーヒー粉は使い捨てカップだけでは抽出できません。使い捨てドリッパーか市販のカセット式ドリッパーを選んでください。';
+      }
+
+      if (!d.cookingAction) {
+        errors.cookingAction = '調理の動作を選んでください。';
+      } else if (d.cookingAction === 'other') {
+        if (isBlank(d.cookingActionOther)) {
+          errors.cookingActionOther = '「その他」を選んだ場合は具体的な調理の動作を入力してください。';
+        } else if (detectBoilWord(d.cookingActionOther)) {
+          errors.cookingActionOther = '茹でる（大量の水を使う調理）は許可が通りません。「煮る」を選択してください。';
+        } else if (detectVagueFillingWord(d.cookingActionOther)) {
+          errors.cookingActionOther = '「具材」だけだと許可が通らないことが多いため、具体的な食材を2つほど記載してください。';
+        } else if (detectHamCheese(d.cookingActionOther).length > 0) {
+          errors.cookingActionOther = '「ハム」「チーズ」を記載すると通らないことが多いです。許可をもらうため、他の食材を記入してください。';
+        } else if (detectNonPlantWhipCream(d.cookingActionOther)) {
+          errors.cookingActionOther = 'ホイップクリームは許可をもらうため、「植物性ホイップクリーム」と記入してください。';
+        } else if (detectWeakHeatWord(d.cookingActionOther)) {
+          // 「温める」系の言葉は曖昧チェックにも該当するが、こちらの方が具体的なので優先する
+          const hasCrepe = [d.foodName, ...(d.ingredients || []), d.cookingActionOther].filter(Boolean).join(' ').includes(CREPE_KEYWORD);
+          errors.cookingActionOther = weakHeatWordMessage(hasCrepe);
+        } else if (detectGroundOnSiteCoffee([d.foodName, ...(d.ingredients || []), d.cookingActionOther])) {
+          errors.cookingActionOther = '豆をその場で粉にすることを記載すると通りません。';
+        } else if (d.cookingCategory === 'drink' && detectBulkDrinkPrep(d.cookingActionOther)) {
+          errors.cookingActionOther = 'まとめて作り置きは許可がおりません。1杯ずつ抽出するように変えてください。';
+        } else {
+          const vague = containsAny(d.cookingActionOther, VAGUE_COOKING_PHRASES);
+          if (vague && d.cookingActionOther.trim().length < 12) {
+            errors.cookingActionOther = `「${vague}」だけでは曖昧です。「十分に加熱する」「市販のティーバッグで一杯ずつ抽出する」のように具体的な工程を明記してください。`;
+          }
         }
       }
     }
@@ -539,9 +605,10 @@ function validateSubmission(d) {
     if (d.storage === 'other' && isBlank(d.storageOther)) {
       errors.storageOther = '保存方法の「その他」の内容を入力してください。';
     }
-    // 単杯抽出専用の固定選択肢（SINGLE_SERVE_COOKING_METHODS）は、都度その場で抽出するティーバッグ・
-    // コーヒー粉自体の保存を指しており、これらは元々乾燥した常温保存可能な材料のため、常温警告の対象外とする
-    if (d.storage === 'normal' && !errors.foodName && !SINGLE_SERVE_COOKING_METHODS.includes(d.cookingMethod)) {
+    // ドリンクで①材料に単杯抽出専用の固定選択肢（SINGLE_SERVE_INGREDIENTS）を選んだ場合は、都度その場で
+    // 抽出するティーバッグ・コーヒー粉自体の保存を指しており、これらは元々乾燥した常温保存可能な材料のため、
+    // 常温警告の対象外とする
+    if (d.storage === 'normal' && !errors.foodName && !(d.cookingCategory === 'drink' && SINGLE_SERVE_INGREDIENTS.includes(d.cookingIngredient))) {
       const dryHit = containsAny([d.foodName, ...(d.ingredients || [])].filter(Boolean).join(' '), DRY_SAFE_KEYWORDS);
       if (!dryHit) {
         errors.storage = '常温保存が適さない可能性があります。乾麺・乾き物など水分が少なく傷みにくい食品でなければ、冷蔵または冷凍を選んでください。';
@@ -555,9 +622,9 @@ function validateSubmission(d) {
     }
 
     // シロップ等を炭酸水・水で割るドリンクは、購入品でも自家製造でも清涼飲料水製造業の許可施設の記入が必要
-    // （材料欄の指摘で既にエラー確定していれば errors.ingredients が立っているのでここは自然にスキップされる）
-    if (!errors.ingredients && !errors.cookingMethodOther) {
-      const drinkHit = detectDrinkPermitNeeded([d.foodName, ...(d.ingredients || []), d.cookingMethodOther]);
+    // （材料欄・①②③の指摘で既にエラー確定していればここは自然にスキップされる）
+    if (!errors.ingredients && !errors.cookingIngredientOther && !errors.cookingToolOther && !errors.cookingActionOther) {
+      const drinkHit = detectDrinkPermitNeeded([d.foodName, ...(d.ingredients || []), d.cookingIngredientOther, d.cookingToolOther, d.cookingActionOther]);
       if (drinkHit) {
         if (isBlank(d.drinkPermitFacilityName) || isBlank(d.drinkPermitFacilityAddress)) {
           errors.drinkPermitFacility = '自家製シロップは通らないことが多いです。清涼飲料水製造許可のある施設でない場合、許可をもらうため、「市販のシロップを使用」と記載お願いします。施設をお持ちの場合は施設の名称と住所を記入してください。';
@@ -565,29 +632,24 @@ function validateSubmission(d) {
       }
     }
 
-    // コーヒー豆をその場で挽くのは不可（テキスト内容のみで判定するため調理方法の選択肢は問わない）
-    if (!errors.ingredients && !errors.cookingMethodOther && detectGroundOnSiteCoffee([d.foodName, ...(d.ingredients || []), d.cookingMethodOther])) {
+    // コーヒー豆をその場で挽くのは不可（②③個別チェックをすり抜けるケースの最終防衛線として、
+    // 材料・器具・動作の自由記述欄をまとめて再チェックする）
+    if (!errors.ingredients && !errors.cookingIngredientOther && !errors.cookingToolOther && !errors.cookingActionOther
+      && detectGroundOnSiteCoffee([d.foodName, ...(d.ingredients || []), d.cookingIngredientOther, d.cookingToolOther, d.cookingActionOther])) {
       errors.ingredients = '豆をその場で粉にすることを記載すると通りません。';
     }
 
-    // コーヒー・紅茶等をまとめて作り置きするのは許可が通らない（cookingMethod='other'で自由記述がある場合のみ判定。
-    // 単杯抽出専用の固定選択肢（SINGLE_SERVE_COOKING_METHODS）は選択自体が確認になるためdetectBulkBrewedDrink内で対象外）
-    if (!errors.ingredients && !errors.cookingMethodOther && detectBulkBrewedDrink(d)) {
-      errors.ingredients = bulkBrewedDrinkMessage(detectBulkBrewedDrink(d));
-    }
-
-    // 生のまま提供されやすい／加熱が前提の食材なのに、実際に加熱する調理方法が選ばれていない。
-    // 「その他」は、具体的な調理方法欄に何か書かれていて、かつ「温める」系の曖昧な言葉でなければ
-    // 加熱調理とみなす（「焼く」「炒める」等の言葉を1つずつ列挙する方式だと、単語が抜けるたびに
-    // 正しく加熱を書いても弾かれる不具合が起きるため、単語の完全一致は要求しない。
-    // 「温める」だけは detectWeakHeatWord で別途、常に禁止する）
-    if (!errors.ingredients && !errors.cookingMethod) {
+    // 生のまま提供されやすい／加熱が前提の食材なのに、実際に加熱する動作が選ばれていない。
+    // ドリンク（cookingCategory==='drink'）は生食材を扱う想定がないため対象外。
+    // 「その他」は、具体的な動作欄に何か書かれていて、かつ「温める」系の曖昧な言葉でなければ
+    // 加熱調理とみなす（単語の完全一致は要求しない。「温める」だけは detectWeakHeatWord で別途、常に禁止する）
+    if (!errors.ingredients && !errors.cookingAction && d.cookingCategory === 'food') {
       const rawText = [d.foodName, ...(d.ingredients || [])].filter(Boolean).join(' ');
       const rawHit = containsAny(rawText, RAW_OR_HEAT_NEEDED_KEYWORDS);
-      const isHeated = HEAT_COOKING_METHODS.includes(d.cookingMethod)
-        || (d.cookingMethod === 'other' && !isBlank(d.cookingMethodOther) && !detectWeakHeatWord(d.cookingMethodOther));
+      const isHeated = HEAT_COOKING_ACTIONS.includes(d.cookingAction)
+        || (d.cookingAction === 'other' && !isBlank(d.cookingActionOther) && !detectWeakHeatWord(d.cookingActionOther));
       if (rawHit && !isHeated) {
-        errors.cookingMethod = rawFoodMessage();
+        errors.cookingAction = rawFoodMessage();
       }
     }
   }
@@ -663,6 +725,10 @@ const FIELD_LABELS = {
   drinkPermitFacilityName: '清涼飲料水の許可施設（名称）', drinkPermitFacilityAddress: '清涼飲料水の許可施設（住所）',
   prep: '仕込みについて', prepFacilityName: '仕込みを行う施設（名称）', prepFacilityAddress: '仕込みを行う施設（住所）', prepDetail: '当日仕込み内容',
   cookingMethod: '調理方法', cookingMethodOther: '具体的な調理方法',
+  cookingCategory: '調理の区分（通常の調理／ドリンクの抽出）',
+  cookingIngredient: '調理方法の材料', cookingIngredientOther: '調理方法のその他の材料',
+  cookingTool: '調理器具', cookingToolOther: 'その他の調理器具',
+  cookingAction: '調理の動作', cookingActionOther: 'その他の調理の動作',
   storage: '保存方法', storageOther: '保存方法の内容',
   serveMethod: '提供方法', serveMethodOther: 'その他の提供方法',
   supplierName: '仕入先の名前', selfMade: '仕入れ先', facilityName: '施設名', facilityAddress: '施設住所', supplierAddress: '仕入先の住所',
@@ -673,6 +739,10 @@ const FIELD_LABELS = {
 function humanizeSubmission(d) {
   const h = { ...d };
   if (d.cookingMethod) h.cookingMethod = COOKING_METHOD_LABELS[d.cookingMethod] || (d.cookingMethod === 'other' ? 'その他（具体的な調理方法欄を参照）' : d.cookingMethod);
+  if (d.cookingCategory) h.cookingCategory = d.cookingCategory === 'drink' ? 'ドリンクの抽出' : '通常の調理';
+  if (d.cookingIngredient) h.cookingIngredient = COOKING_INGREDIENT_LABELS[d.cookingIngredient] || (d.cookingIngredient === 'other' ? 'その他（材料のその他欄を参照）' : d.cookingIngredient);
+  if (d.cookingTool) h.cookingTool = COOKING_TOOL_LABELS[d.cookingTool] || (d.cookingTool === 'other' ? 'その他（調理器具のその他欄を参照）' : d.cookingTool);
+  if (d.cookingAction) h.cookingAction = COOKING_ACTION_LABELS[d.cookingAction] || (d.cookingAction === 'other' ? 'その他（動作のその他欄を参照）' : d.cookingAction);
   if (d.storage) h.storage = STORAGE_LABELS[d.storage] || (d.storage === 'other' ? 'その他（保存方法の内容欄を参照）' : d.storage);
   if (Array.isArray(d.serveMethod)) h.serveMethod = d.serveMethod.map((m) => SERVE_METHOD_LABELS[m] || (m === 'other' ? 'その他（その他の提供方法欄を参照）' : m));
   if (Array.isArray(d.licenseType)) h.licenseType = d.licenseType.map((m) => LICENSE_TYPE_LABELS[m] || (m === 'other' ? 'その他（その他の製造許可の業種欄を参照）' : m));
@@ -768,7 +838,14 @@ async function aiSemanticCheck(d) {
   const coffeeItemText = [d.foodName, ...(d.ingredients || [])].filter(Boolean).join(' ');
   const isCoffeeItem = coffeeItemText.includes('コーヒー') || coffeeItemText.includes('珈琲') || /coffee/i.test(coffeeItemText);
   const dForAI = isCoffeeItem
-    ? { ...d, prepDetail: stripCoffeeBeanProcessWording(d.prepDetail), cookingMethodOther: stripCoffeeBeanProcessWording(d.cookingMethodOther) }
+    ? {
+      ...d,
+      prepDetail: stripCoffeeBeanProcessWording(d.prepDetail),
+      cookingMethodOther: stripCoffeeBeanProcessWording(d.cookingMethodOther),
+      cookingIngredientOther: stripCoffeeBeanProcessWording(d.cookingIngredientOther),
+      cookingToolOther: stripCoffeeBeanProcessWording(d.cookingToolOther),
+      cookingActionOther: stripCoffeeBeanProcessWording(d.cookingActionOther),
+    }
     : d;
 
   const response = await anthropic.messages.create({
@@ -990,7 +1067,7 @@ async function renderSubmissionPdfBuffer(d, dateText) {
       '{{仕込先名前}}': d.prep === 'onsite' ? d.prepFacilityName : '',
       '{{仕込先住所}}': d.prep === 'onsite' ? d.prepFacilityAddress : '',
       '{{仕込み内容}}': d.prep === 'onsite' ? d.prepDetail : 'なし',
-      '{{調理方法}}': COOKING_METHOD_LABELS[d.cookingMethod] || d.cookingMethodOther || '',
+      '{{調理方法}}': composeCookingMethodText(d),
       '{{保存方法}}': STORAGE_LABELS[d.storage] || d.storageOther || '',
       '{{提供方法}}': (d.serveMethod || []).map((m) => SERVE_METHOD_LABELS[m] || d.serveMethodOther).join('、'),
       '{{物販仕入区分}}': '□  A 購入 □  B 許可のある施設で製造したものを販売',
