@@ -374,6 +374,19 @@ function looksLikeMultipleItems(text) {
   return /[\s,、]/.test(text.trim());
 }
 
+// 仕込み先施設・自家製造施設（物販）の名称・住所に「同上」と書かれた場合、出店者自身の店名・住所に
+// 機械的に置き換える。保健所からは「同上」ではなく実際の住所を書いてほしいと指摘されているが、
+// 出店者自身の情報と同じなら二重入力させる必要はなく、フォーム側で自動補完すればよい
+// （このフォームは書き方の案内であって、出店者に手間を強いる検証者ではない）。
+// validateSubmissionが通った後、aiSemanticCheck・PDF生成・シート書き込みより前に呼ぶこと
+function resolveSameAsAboveFacilities(d) {
+  if (d.prepFacilityName && d.prepFacilityName.trim() === '同上') d.prepFacilityName = d.shopName;
+  if (d.prepFacilityAddress && d.prepFacilityAddress.trim() === '同上') d.prepFacilityAddress = d.address;
+  if (d.facilityName && d.facilityName.trim() === '同上') d.facilityName = d.shopName;
+  if (d.facilityAddress && d.facilityAddress.trim() === '同上') d.facilityAddress = d.address;
+  return d;
+}
+
 // ===== 決定的バリデーション（構造・必須項目・既知NGパターン） =====
 function validateSubmission(d) {
   const errors = {};
@@ -495,9 +508,9 @@ function validateSubmission(d) {
     } else if (d.prep === 'onsite') {
       if (isBlank(d.prepFacilityName) || isBlank(d.prepFacilityAddress)) {
         errors.prepFacility = '仕込みを行う施設の名称と住所を入力してください。';
-      } else if (d.prepFacilityName.trim() === '同上' || d.prepFacilityAddress.trim() === '同上') {
-        errors.prepFacility = '出店者の住所・氏名と同じ場合も、「同上」ではなく省略せずそのまま記入してください。';
       }
+      // 「同上」は許可しつつブロックはしない。resolveSameAsAboveFacilities（/api/submit側）が
+      // 出店者自身の店名・住所に機械的に置き換えるため、ここでは弾かない
       // フォーム上には「当日の仕込みで焼く煮るなどの調理はできません」という案内文を出しているが、
       // 機械チェックでは強制していない（意図的）。既存の「茹でる」チェックは仕込み内容欄を対象外に
       // している（許可施設で行う前提のため）という設計と衝突する可能性があり、YAMAから明示的な
@@ -672,9 +685,9 @@ function validateSubmission(d) {
     } else if (d.selfMade === 'yes') {
       if (isBlank(d.facilityName) || isBlank(d.facilityAddress)) {
         errors.facility = '自社製造の場合、製造許可のある施設の名称と住所を両方入力してください。';
-      } else if (d.facilityName.trim() === '同上' || d.facilityAddress.trim() === '同上') {
-        errors.facility = '出店者の住所・氏名と同じ場合も、「同上」ではなく省略せずそのまま記入してください。';
       }
+      // 「同上」は許可しつつブロックはしない。resolveSameAsAboveFacilities（/api/submit側）が
+      // 出店者自身の店名・住所に機械的に置き換えるため、ここでは弾かない
       if (!d.licenseType || d.licenseType.length === 0) {
         errors.licenseType = '製造許可の業種を1つ以上選んでください。';
       } else if (d.licenseType.includes('other') && isBlank(d.licenseTypeOther)) {
@@ -804,7 +817,7 @@ async function aiSemanticCheck(d) {
 - 「具材」という曖昧な記載の指摘
 - ホイップクリームの植物性明記漏れの指摘
 - クレープの現地調理（前日仕込み・温め提供は不可）の指摘
-- 清涼飲料水製造許可施設の名称・住所欄に「同上」と記載されている点の指摘（出店者自身の住所・店名が、既に許可を得た施設であることを示す一般的な書き方のため問題ない。ただし仕込み先施設・自家製造施設（物販）の名称・住所欄は「同上」を機械チェックで別途ブロックしているため対象外）
+- 清涼飲料水製造許可施設の名称・住所欄に「同上」と記載されている点の指摘（出店者自身の住所・店名が、既に許可を得た施設であることを示す一般的な書き方のため問題ない）
 - 材料の仕入れ区分が「保健所許可のある場所で自家製造する」の場合に、施設名・施設住所が空欄・未記載である点の指摘（このフォームには自家製造を選んだ場合の施設名・住所を入力する欄自体が存在せず、出店者自身の住所・店名が施設情報を兼ねる設計のため、空欄で問題ない。記入を求める指摘は出店者が対応できないので絶対にしないこと）
 - 調理の動作欄・その他の動作欄に何らかの加熱調理を示す記載があり、それが「温める」「あたためる」という言葉自体でない場合、その加熱が実質的に「温める」と同じ行為ではないか、加熱の程度が十分か、といった深読みした指摘（仕込み済みの食品を会場で再加熱する場合であっても、「温める」という言葉さえ使っていなければ表現として十分なので、それ以上の具体性・詳しさは求めない）
 - 保存方法の欄は既に確認済みです。仕込みから会場までの運搬中の温度管理・輸送方法について、仕込み内容欄等に追加の説明を求める指摘はしないでください
@@ -1233,6 +1246,9 @@ app.post('/api/submit', async (req, res) => {
       return res.status(400).json({ ok: false, fieldErrors, stage: 'structure' });
     }
 
+    // 「同上」を出店者自身の店名・住所に置き換える（AIチェック・PDF・シートの全てがこの結果を見る）
+    resolveSameAsAboveFacilities(d);
+
     // 2. AI意味チェック
     let aiResult = { items: [] };
     try {
@@ -1356,6 +1372,7 @@ app.patch('/api/submissions/:rowNumber', requireAdminKey, async (req, res) => {
       return res.status(500).json({ ok: false, error: '既存データの読み込みに失敗しました。' });
     }
     const merged = { ...d, ...patch };
+    resolveSameAsAboveFacilities(merged);
 
     const pdfLink = await generateSubmissionPdf(merged);
 
