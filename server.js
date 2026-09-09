@@ -636,7 +636,7 @@ function validateSubmission(d) {
     // 最終防衛線として、材料・器具・動作の自由記述欄と仕込み内容欄をまとめて再チェックする。
     // 「コーヒー」の語と「挽く」の語が別々の欄に分かれて書かれると、個別チェックのどちらにも
     // 引っかからず素通りすることが監査で指摘されたため、prepDetailもここに含める）
-    if (!errors.ingredients && !errors.cookingIngredientOther && !errors.cookingToolOther && !errors.cookingActionOther
+    if (!errors.ingredients && !errors.cookingIngredientOther && !errors.cookingToolOther && !errors.cookingActionOther && !errors.prepDetail
       && detectGroundOnSiteCoffee([d.foodName, ...(d.ingredients || []), d.cookingIngredientOther, d.cookingToolOther, d.cookingActionOther, d.prepDetail])) {
       errors.ingredients = '豆をその場で粉にすることを記載すると通りません。';
     }

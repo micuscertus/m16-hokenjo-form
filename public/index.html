@@ -1320,7 +1320,11 @@
       } else {
         checkDrinkPermitFacilityLive(drinkHit);
       }
+    }
 
+    // prepDetail単体で完結する現地挽きは checkPrepDetailLive 側が既にprepDetail欄へエラーを出すため、
+    // ここでの無関係なingredients欄への二重表示を避ける（監査で指摘された副作用の修正）
+    if (noBlockingErr && !hasErr('prepDetail')) {
       const prepDetailText = document.getElementById('prepDetail')?.value.trim() || '';
       const otherJoined = [d.cookingIngredientOther, d.cookingToolOther, d.cookingActionOther, prepDetailText].filter(Boolean).join(' ');
       if (detectGroundOnSiteCoffee(foodName, ing1, ing2, ing3, otherJoined)) {
