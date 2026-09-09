@@ -686,6 +686,7 @@ async function aiSemanticCheck(d) {
 - ひき肉から成形する必要がある食品（ハンバーグ等）について、仕込みが「仕込みなし」になっている場合に、生のひき肉から成形したのか市販の成形済み品を使っているのかを尋ねたり、成形作業は仕込みとして記載が必要ではないかと指摘したりすること（「仕込みなし」が選ばれている時点で、現地では成形等の下ごしらえを行わない前提として扱ってよい）
 - コーヒー豆を当日・会場でその場で挽く／粉にする点の判断・指摘（機械チェックで別途対応済みのため対象外。「豆」をその場に持ち込んで挽く旨が明記されている場合のみ、機械チェック側で判定するので、AIチェックでは一切判断しないこと。材料欄と他の欄の記載の整合性については最重要ルール２を参照）
 - 物販で選択された製造許可の業種（菓子製造業・惣菜製造業等）が、取扱食品名や材料欄の内容と一致しているか・妥当かどうかの判断・指摘（出店者が実際に保有している許可を自己申告する欄であり、AIが取扱食品との組み合わせの妥当性を判断する対象ではありません。一見結びつきが薄く見える組み合わせでも、絶対に指摘しないでください）
+- 提供方法（使い捨て容器／使い捨てカップ等）が取扱食品名から見て一般的かどうかの判断・指摘（例：「焼き鳥」に「使い捨てカップ」は不自然、といった一般常識との照合はAIチェックの対象外です。出店者が実際に使う提供方法を選んでいるだけなので、食品名との組み合わせの妥当性は絶対に指摘しないでください）
 
 指摘してほしいのは、たとえば以下のような機械的チェックをすり抜ける矛盾です:
 - 食品名と調理方法が明らかに矛盾している（例：トーストと書いてあるのに調理方法が「蒸す」）
@@ -1178,6 +1179,77 @@ app.delete('/api/submissions/:rowNumber', requireAdminKey, async (req, res) => {
     res.json({ ok: true });
   } catch (error) {
     console.error('申し込み削除エラー:', error.message);
+    res.status(500).json({ ok: false, error: error.message });
+  }
+});
+
+// ===== 申し込み内容の一部を修正（管理用。出店者本人の記載ミスの訂正に使う） =====
+// リクエストボディのpatchオブジェクトを既存データにマージし、PDFを再生成してシートを更新する。
+// 元のPDFファイルは削除せず残す（Driveに古い版が残るが、安全側に倒して自動削除はしない）
+// 意図的に/api/submitと同じ構造チェック（validateSubmission）・AIチェック（aiSemanticCheck）は
+// 通していない。ここは出店者本人の入力フローではなく、既に受理済みのデータを管理者（YAMA）が
+// 事実確認の上で訂正するための経路のため。ADMIN_KEYで保護されているが、curlで直接叩く運用なので、
+// 呼び出す側が正しいデータであることを事前に確認する前提で使うこと
+app.patch('/api/submissions/:rowNumber', requireAdminKey, async (req, res) => {
+  try {
+    const rowNumber = Number(req.params.rowNumber);
+    if (!Number.isInteger(rowNumber) || rowNumber < 2) {
+      return res.status(400).json({ ok: false, error: '不正なrowNumberです。' });
+    }
+    const patch = req.body.patch;
+    if (!patch || typeof patch !== 'object' || Array.isArray(patch)) {
+      return res.status(400).json({ ok: false, error: 'patchオブジェクトを指定してください。' });
+    }
+    // ingredientsを配列でなく文字列で渡すと、PDF生成側が文字列を1文字ずつの配列として
+    // 扱ってしまい、エラーにならないまま材料欄が壊れた状態で本番データが確定してしまう
+    // （serveMethod・licenseTypeは.map()を使っているため配列以外だと例外で落ちて安全だが、
+    // ingredientsだけは黙って壊れる経路があるため、ここで明示的に弾く）
+    const ARRAY_FIELDS = ['ingredients', 'serveMethod', 'licenseType'];
+    for (const key of ARRAY_FIELDS) {
+      if (key in patch && !Array.isArray(patch[key])) {
+        return res.status(400).json({ ok: false, error: `patch.${key}は配列で指定してください。` });
+      }
+    }
+
+    const rows = await readSubmissionRows();
+    const target = rows.find((r) => r.rowNumber === rowNumber);
+    if (!target) {
+      return res.status(404).json({ ok: false, error: '対象の申し込みが見つかりません。' });
+    }
+    let d;
+    try {
+      d = JSON.parse(target.dataJson);
+    } catch {
+      return res.status(500).json({ ok: false, error: '既存データの読み込みに失敗しました。' });
+    }
+    const merged = { ...d, ...patch };
+
+    const pdfLink = await generateSubmissionPdf(merged);
+
+    const sheets = getSheetsClient();
+    if (!sheets) throw new Error('GOOGLE_CREDENTIALS_JSON未設定');
+    const spreadsheetId = process.env.SPREADSHEET_ID;
+    const sheetName = process.env.SHEET_NAME || '臨時出店フォーム受付';
+    const row = [
+      merged.shopName || '',
+      merged.personName || '',
+      merged.phone || '',
+      merged.address || '',
+      merged.businessType === 'restaurant' ? '飲食店' : '食品物販',
+      merged.foodName || '',
+      pdfLink || target.pdfLink || '',
+      JSON.stringify(merged),
+    ];
+    await sheets.spreadsheets.values.update({
+      spreadsheetId,
+      range: `${sheetName}!B${rowNumber}:I${rowNumber}`,
+      valueInputOption: 'USER_ENTERED',
+      requestBody: { values: [row] },
+    });
+
+    res.json({ ok: true, pdfLink });
+  } catch (error) {
+    console.error('申し込み修正エラー:', error.message);
     res.status(500).json({ ok: false, error: error.message });
   }
 });
