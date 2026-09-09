@@ -1463,11 +1463,23 @@
     });
   });
 
+  // 選択肢を切り替えた後、非表示になった欄に前の入力が残ったまま送信されるのを防ぐため
+  // クリアする（実際に「仕込みなし」に切り替えても仕込み内容欄のテキストが残って送信され、
+  // AIチェックが「仕込みなしのはずなのに内容が書かれている」と指摘した実例があった）
+  function clearFieldValues(ids) {
+    ids.forEach((id) => {
+      const el = document.getElementById(id);
+      if (el) el.value = '';
+      setError(id, null);
+    });
+  }
+
   // 食材について（購入／自家製造）サブフィールド
   document.querySelectorAll('input[name="ingredientSourceType"]').forEach((el) => {
     el.addEventListener('change', () => {
       const v = document.querySelector('input[name="ingredientSourceType"]:checked')?.value;
       document.getElementById('ingredientPurchaseSub').classList.toggle('hidden', v !== 'purchase');
+      if (v !== 'purchase') clearFieldValues(['ingredientSourceName', 'ingredientSourceAddress']);
     });
   });
 
@@ -1476,6 +1488,10 @@
     el.addEventListener('change', () => {
       const v = document.querySelector('input[name="prep"]:checked')?.value;
       document.getElementById('prepSub').classList.toggle('hidden', v !== 'onsite');
+      if (v !== 'onsite') {
+        clearFieldValues(['prepFacilityName', 'prepFacilityAddress', 'prepDetail']);
+        setError('prepFacility', null);
+      }
     });
   });
 
@@ -1485,6 +1501,10 @@
     el.addEventListener('change', () => {
       const v = document.querySelector('input[name="storage"]:checked')?.value;
       document.getElementById('storageOtherSubR').classList.toggle('hidden', v !== 'other');
+      if (v !== 'other') {
+        document.getElementById('storageOtherR').value = '';
+        setError('storageOther', null);
+      }
     });
   });
 
@@ -1493,6 +1513,10 @@
     el.addEventListener('change', () => {
       const v = document.querySelector('input[name="storageRetail"]:checked')?.value;
       document.getElementById('storageOtherSubT').classList.toggle('hidden', v !== 'other');
+      if (v !== 'other') {
+        document.getElementById('storageOtherT').value = '';
+        setError('storageOther_r', null);
+      }
     });
   });
 
@@ -1502,6 +1526,14 @@
       const v = document.querySelector('input[name="selfMade"]:checked')?.value;
       document.getElementById('selfMadeYesSub').classList.toggle('hidden', v !== 'yes');
       document.getElementById('selfMadeNoSub').classList.toggle('hidden', v !== 'no');
+      if (v !== 'yes') {
+        clearFieldValues(['facilityName', 'facilityAddress', 'licenseTypeOther']);
+        document.querySelectorAll('input[name="licenseType"]').forEach((cb) => { cb.checked = false; });
+        document.getElementById('licenseTypeOtherSub')?.classList.add('hidden');
+        setError('facility', null);
+        setError('licenseType', null);
+      }
+      if (v !== 'no') clearFieldValues(['supplierName', 'supplierAddress']);
     });
   });
 

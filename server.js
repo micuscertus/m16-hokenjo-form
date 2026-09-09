@@ -374,16 +374,48 @@ function looksLikeMultipleItems(text) {
   return /[\s,、]/.test(text.trim());
 }
 
+// 選択肢を切り替えた後も、フロント側で非表示になっただけのフィールドに前の入力が残ったまま
+// 送信されてくる場合がある（実際に「仕込みなし」を選んだのに当日仕込み内容欄に前回入力した
+// テキストが残って送られ、AIチェックが「仕込みなしのはずなのに内容が書かれている」と正しく
+// 指摘した実例があった）。フロント側でも選択切り替え時にクリアしているが、二重の安全策として
+// 選択と無関係になったフィールドはサーバー側でも空にしてからAIチェック・PDF・シートに渡す
+function clearIrrelevantFields(d) {
+  if (d.prep !== 'onsite') {
+    d.prepFacilityName = '';
+    d.prepFacilityAddress = '';
+    d.prepDetail = '';
+  }
+  if (d.ingredientSourceType !== 'purchase') {
+    d.ingredientSourceName = '';
+    d.ingredientSourceAddress = '';
+  }
+  if (d.storage !== 'other') d.storageOther = '';
+  if (d.selfMade !== 'yes') {
+    d.facilityName = '';
+    d.facilityAddress = '';
+    d.licenseType = [];
+    d.licenseTypeOther = '';
+  }
+  if (d.selfMade !== 'no') {
+    d.supplierName = '';
+    d.supplierAddress = '';
+  }
+  return d;
+}
+
 // 仕込み先施設・自家製造施設（物販）の名称・住所に「同上」と書かれた場合、出店者自身の店名・住所に
 // 機械的に置き換える。保健所からは「同上」ではなく実際の住所を書いてほしいと指摘されているが、
 // 出店者自身の情報と同じなら二重入力させる必要はなく、フォーム側で自動補完すればよい
 // （このフォームは書き方の案内であって、出店者に手間を強いる検証者ではない）。
 // validateSubmissionが通った後、aiSemanticCheck・PDF生成・シート書き込みより前に呼ぶこと
+// shopName/addressが空欄の場合は置換せず「同上」の文字列のまま残す（/api/submitは共通必須項目として
+// 別途空欄チェック済みだが、PATCH /api/submissions/:rowNumberはバリデーションを通さないため、
+// ここで空文字への置換自体を防ぐ二重の安全策）
 function resolveSameAsAboveFacilities(d) {
-  if (d.prepFacilityName && d.prepFacilityName.trim() === '同上') d.prepFacilityName = d.shopName;
-  if (d.prepFacilityAddress && d.prepFacilityAddress.trim() === '同上') d.prepFacilityAddress = d.address;
-  if (d.facilityName && d.facilityName.trim() === '同上') d.facilityName = d.shopName;
-  if (d.facilityAddress && d.facilityAddress.trim() === '同上') d.facilityAddress = d.address;
+  if (d.prepFacilityName && d.prepFacilityName.trim() === '同上' && !isBlank(d.shopName)) d.prepFacilityName = d.shopName;
+  if (d.prepFacilityAddress && d.prepFacilityAddress.trim() === '同上' && !isBlank(d.address)) d.prepFacilityAddress = d.address;
+  if (d.facilityName && d.facilityName.trim() === '同上' && !isBlank(d.shopName)) d.facilityName = d.shopName;
+  if (d.facilityAddress && d.facilityAddress.trim() === '同上' && !isBlank(d.address)) d.facilityAddress = d.address;
   return d;
 }
 
@@ -1246,7 +1278,9 @@ app.post('/api/submit', async (req, res) => {
       return res.status(400).json({ ok: false, fieldErrors, stage: 'structure' });
     }
 
-    // 「同上」を出店者自身の店名・住所に置き換える（AIチェック・PDF・シートの全てがこの結果を見る）
+    // 選択と無関係になったフィールドの残留データを消してから、「同上」を出店者自身の店名・住所に
+    // 置き換える（AIチェック・PDF・シートの全てがこの結果を見る）
+    clearIrrelevantFields(d);
     resolveSameAsAboveFacilities(d);
 
     // 2. AI意味チェック
@@ -1372,6 +1406,7 @@ app.patch('/api/submissions/:rowNumber', requireAdminKey, async (req, res) => {
       return res.status(500).json({ ok: false, error: '既存データの読み込みに失敗しました。' });
     }
     const merged = { ...d, ...patch };
+    clearIrrelevantFields(merged);
     resolveSameAsAboveFacilities(merged);
 
     const pdfLink = await generateSubmissionPdf(merged);
