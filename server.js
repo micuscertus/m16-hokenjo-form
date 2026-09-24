@@ -1105,10 +1105,14 @@ async function renderSubmissionPdfBuffer(d, dateText) {
         : '☑  A 購入先アリ □  B 許可のある施設で製造',
       '{{購入先名前}}': !isBlank(d.drinkPermitFacilityName)
         ? d.drinkPermitFacilityName
-        : d.ingredientSourceType === 'selfmade' ? '自社（保健所許可施設で製造）' : d.ingredientSourceName,
+        : d.ingredientSourceType === 'selfmade'
+          ? (!isBlank(d.shopName) ? d.shopName : '自社（保健所許可施設で製造）')
+          : d.ingredientSourceName,
       '{{購入先住所}}': !isBlank(d.drinkPermitFacilityAddress)
         ? d.drinkPermitFacilityAddress
-        : d.ingredientSourceType === 'selfmade' ? '' : d.ingredientSourceAddress,
+        : d.ingredientSourceType === 'selfmade'
+          ? (!isBlank(d.address) ? d.address : '')
+          : d.ingredientSourceAddress,
       '{{仕込み区分}}': d.prep === 'onsite'
         ? '□  A なし ☑  B 許可のある施設で当日仕込み'
         : '☑  A なし □  B 許可のある施設で当日仕込み',
