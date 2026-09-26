@@ -107,8 +107,25 @@ app.use(express.static(path.join(__dirname, 'public')));
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
-// 国内仕入れ先チェック用（簡易・完全ではない）
-const OVERSEAS_KEYWORDS = ['中国', 'アメリカ', 'USA', '韓国', '台湾', 'ベトナム', 'タイ', 'インド', 'フランス', 'イタリア', '海外'];
+// 国内仕入れ先チェック用。特定の国名を列挙するブロックリストだと未収録の国（キルギス等）を
+// 見逃すため、「日本の住所らしい表記を含んでいるか」を見る方式にしている
+const JP_PREFECTURES = [
+  '北海道', '青森県', '岩手県', '宮城県', '秋田県', '山形県', '福島県', '茨城県', '栃木県', '群馬県',
+  '埼玉県', '千葉県', '東京都', '神奈川県', '新潟県', '富山県', '石川県', '福井県', '山梨県', '長野県',
+  '岐阜県', '静岡県', '愛知県', '三重県', '滋賀県', '京都府', '大阪府', '兵庫県', '奈良県', '和歌山県',
+  '鳥取県', '島根県', '岡山県', '広島県', '山口県', '徳島県', '香川県', '愛媛県', '高知県', '福岡県',
+  '佐賀県', '長崎県', '熊本県', '大分県', '宮崎県', '鹿児島県', '沖縄県',
+];
+
+function looksLikeDomesticAddress(address) {
+  if (isBlank(address)) return false;
+  if (JP_PREFECTURES.some((pref) => address.includes(pref))) return true;
+  // 都道府県が省略されていても「〇〇市」等の市区町村表記があれば国内住所とみなす
+  if (/[市区町村郡]/.test(address)) return true;
+  // 郵便番号らしき表記
+  if (/\d{3}-?\d{4}/.test(address)) return true;
+  return false;
+}
 // 使用不可の材料キーワード
 const BANNED_INGREDIENT_KEYWORDS = ['牛乳', '生乳'];
 // ご飯類をその場でよそう提供は不可（保健所確認済み）。パック詰め販売かクスクス等への変更が必要
@@ -529,11 +546,8 @@ function validateSubmission(d) {
       if (isBlank(d.ingredientSourceName)) errors.ingredientSourceName = '購入先の名前を入力してください（市販品でも必須です）。';
       if (isBlank(d.ingredientSourceAddress)) {
         errors.ingredientSourceAddress = '購入先の住所を入力してください。';
-      } else {
-        const overseas = containsAny(d.ingredientSourceAddress, OVERSEAS_KEYWORDS);
-        if (overseas) {
-          errors.ingredientSourceAddress = `購入先住所に「${overseas}」が含まれています。国内の代理店の名前を記入してください。`;
-        }
+      } else if (!looksLikeDomesticAddress(d.ingredientSourceAddress)) {
+        errors.ingredientSourceAddress = '購入先住所が国内の住所として確認できません。国内の代理店の名前・住所を入力してください。海外から自分で直接仕入れている場合は、代理店ではなく出店者自身（自社）の名前・住所を入力してください。';
       }
     }
 
@@ -732,11 +746,8 @@ function validateSubmission(d) {
         errors.supplierName = '仕入先の名前を入力してください。';
       } else if (isBlank(d.supplierAddress)) {
         errors.supplierAddress = '仕入先の住所を入力してください。';
-      } else {
-        const overseas = containsAny(d.supplierAddress, OVERSEAS_KEYWORDS);
-        if (overseas) {
-          errors.supplierAddress = `仕入先住所に「${overseas}」が含まれています。国内の代理店の名前を記入してください。`;
-        }
+      } else if (!looksLikeDomesticAddress(d.supplierAddress)) {
+        errors.supplierAddress = '仕入先住所が国内の住所として確認できません。国内の代理店の名前・住所を入力してください。海外から自分で直接仕入れている場合は、代理店ではなく出店者自身（自社）の名前・住所を入力してください。';
       }
     }
 
