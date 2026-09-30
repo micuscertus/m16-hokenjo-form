@@ -107,8 +107,9 @@ app.use(express.static(path.join(__dirname, 'public')));
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
-// 国内仕入れ先チェック用。特定の国名を列挙するブロックリストだと未収録の国（キルギス等）を
-// 見逃すため、「日本の住所らしい表記を含んでいるか」を見る方式にしている
+// 住所が国内のものらしいかのチェック用（仕入れ先住所・出店者自身の住所の両方で使う）。
+// 特定の国名を列挙するブロックリストだと未収録の国（キルギス等）を見逃すため、
+// 「日本の住所らしい表記を含んでいるか」を見る方式にしている
 const JP_PREFECTURES = [
   '北海道', '青森県', '岩手県', '宮城県', '秋田県', '山形県', '福島県', '茨城県', '栃木県', '群馬県',
   '埼玉県', '千葉県', '東京都', '神奈川県', '新潟県', '富山県', '石川県', '福井県', '山梨県', '長野県',
@@ -443,7 +444,11 @@ function validateSubmission(d) {
   const errors = {};
 
   // 共通項目
-  if (isBlank(d.address)) errors.address = '出店者の住所を入力してください。';
+  if (isBlank(d.address)) {
+    errors.address = '出店者の住所を入力してください。';
+  } else if (!looksLikeDomesticAddress(d.address)) {
+    errors.address = '住所に市区町村が含まれていないようです。「東京都港区港南2-13-31」のように、番地の前に都道府県・市区町村まで入力してください。';
+  }
   if (isBlank(d.shopName)) errors.shopName = '店名を入力してください。';
   if (isBlank(d.personName)) errors.personName = '担当者の個人名を入力してください（法人名・屋号だけではNGです）。';
   if (isBlank(d.phone)) {
