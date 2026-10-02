@@ -230,15 +230,28 @@ function detectCitrusIssues(exemptTexts, extraTriggerTexts) {
 // フィールド全体での共起にすると「自家製シロップ、市販のレモン果汁」のように1欄に複数品目を
 // 書いた場合に無関係な「市販」で自家製側まで打ち消してしまうため、品目の区切りとして使われがちな
 // 読点・カンマ・中黒・空白で区切って判定する
-// texts は個別のフィールドごとの配列で渡すこと
+// texts は個別のフィールドごとの配列で渡すこと。先頭は食品名とする。
+// 食品名は「りんごジュース」のように商品名として書かれ「市販」を付けないのが普通なので、食品名の該当
+// キーワードと同じキーワードを含む「市販」の品目が材料欄などにある場合は、食品名の該当を無視する。
+// キーワードが違えば無視しない（「自家製シロップ」＋材料「市販の果汁」は自家製として求める）
 function detectDrinkPermitNeeded(texts) {
   const list = Array.isArray(texts) ? texts : [texts];
-  for (const text of list) {
+  const marketKeywords = new Set();
+  for (let i = 1; i < list.length; i++) {
+    for (const segment of (list[i] || '').split(/[、,・\s]+/)) {
+      if (!segment.includes(MARKET_BOUGHT_MARKER)) continue;
+      for (const k of SELF_MADE_DRINK_KEYWORDS) if (segment.includes(k)) marketKeywords.add(k);
+    }
+  }
+  for (let i = 0; i < list.length; i++) {
+    const text = list[i];
     if (!text) continue;
     for (const segment of text.split(/[、,・\s]+/)) {
-      const hit = containsAny(segment, SELF_MADE_DRINK_KEYWORDS);
-      if (hit && !segment.includes(MARKET_BOUGHT_MARKER)) {
-        return hit;
+      if (segment.includes(MARKET_BOUGHT_MARKER)) continue;
+      for (const k of SELF_MADE_DRINK_KEYWORDS) {
+        if (!segment.includes(k)) continue;
+        if (i === 0 && marketKeywords.has(k)) continue;
+        return k;
       }
     }
   }
@@ -687,13 +700,14 @@ function validateSubmission(d) {
       errors.serveMethodOther = '「その他」を選んだ場合は提供方法を具体的に入力してください。';
     }
 
-    // シロップ等を炭酸水・水で割るドリンクは、購入品でも自家製造でも清涼飲料水製造業の許可施設の記入が必要
+    // シロップ・ジュース等のドリンクは清涼飲料水製造業の許可施設の記入が必要。ただし材料欄などに「市販」と
+    // 明記した同じ種類の品目があれば市販品の宣言とみなし不要（detectDrinkPermitNeededの判定どおり）
     // （材料欄・①②③の指摘で既にエラー確定していればここは自然にスキップされる）
     if (!errors.ingredients && !errors.cookingIngredientOther && !errors.cookingToolOther && !errors.cookingActionOther) {
       const drinkHit = detectDrinkPermitNeeded([d.foodName, ...(d.ingredients || []), d.cookingIngredientOther, d.cookingToolOther, d.cookingActionOther]);
       if (drinkHit) {
         if (isBlank(d.drinkPermitFacilityName) || isBlank(d.drinkPermitFacilityAddress)) {
-          errors.drinkPermitFacility = '自家製シロップは通らないことが多いです。清涼飲料水製造許可のある施設でない場合、許可をもらうため、「市販のシロップを使用」と記載お願いします。施設をお持ちの場合は施設の名称と住所を記入してください。';
+          errors.drinkPermitFacility = 'シロップ・ジュースなどのドリンクは、清涼飲料水製造業の許可施設の名称と住所が必要です。下の欄に記入するか、市販品なら材料欄に「市販のジュース」「市販のシロップ」のように書いてください。';
         }
       }
     }
