@@ -761,7 +761,9 @@
     const list = Array.isArray(texts) ? texts : [texts];
     return list.some((t) => t && PLAIN_RICE_KEYWORDS.includes(t.trim()));
   }
-  const SELF_MADE_DRINK_KEYWORDS = ['シロップ', 'コーディアル', '自家製ドリンク', '自家調合', '自家製シロップ', '果汁'];
+  const SELF_MADE_DRINK_KEYWORDS = ['シロップ', 'コーディアル', '自家製ドリンク', '自家調合', '自家製シロップ', '果汁', 'ジュース'];
+  // AIチェックが許可施設の入力を求めた場合は、キーワードに当たらなくても入力欄を出したままにする
+  let forceDrinkPermitVisible = false;
   const MARKET_BOUGHT_MARKER = '市販';
   const RAW_CITRUS_DRINK_KEYWORDS = ['レモン', 'ライム', 'かぼす', 'すだち'];
   const VAGUE_COOKING_PHRASES = ['熱湯を注ぐ'];
@@ -1314,7 +1316,7 @@
 
     if (noBlockingErr) {
       const drinkHit = detectDrinkPermitNeeded([foodName, ing1, ing2, ing3, d.cookingIngredientOther, d.cookingToolOther, d.cookingActionOther]);
-      document.getElementById('drinkPermitFacilitySub')?.classList.toggle('hidden', !drinkHit);
+      document.getElementById('drinkPermitFacilitySub')?.classList.toggle('hidden', !drinkHit && !forceDrinkPermitVisible);
       if (!drinkHit) {
         setError('drinkPermitFacility', null);
       } else {
@@ -1679,6 +1681,10 @@
         const list = Object.values(data.fieldErrors).map((m) => `<li>${m}</li>`).join('');
         topError.className = 'banner ai show';
         topError.innerHTML = `AIによる確認で、以下の点が保健所提出時に問題になる可能性があります。内容を見直して再送信してください。<ul class="ai-error-list">${list}</ul>`;
+        if (Object.values(data.fieldErrors).some((m) => String(m).includes('清涼飲料水の許可施設'))) {
+          forceDrinkPermitVisible = true;
+          document.getElementById('drinkPermitFacilitySub')?.classList.remove('hidden');
+        }
       } else {
         topError.textContent = data.error || '送信に失敗しました。もう一度お試しください。';
         topError.classList.add('show');
