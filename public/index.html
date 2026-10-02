@@ -422,7 +422,7 @@
             生野菜を生のまま提供することは通らない（許可施設でカットしても、生のまま出すこと自体が不可） ⇒ 調理方法の③動作で「その他」を選び、「野菜を焼く」等、加熱する内容を記載。レタスなど生のまま添えるだけで焼く予定のない野菜は、材料欄・調理方法欄のどちらにも書かないでください。<br>
             肉・魚介・麺・卵等の生食材も同様に、加熱調理する内容にしてください。<br><br>
             生のレモン・ライム等をドリンクにそのまま使うことは通らない ⇒ 「市販のシロップを炭酸で割る」と記載。<br><br>
-            自家製シロップは「清涼飲料水製造許可のある施設」が必要 ⇒ なければ「市販のシロップ」と記載。<br><br>
+            シロップ・ジュースなどのドリンクは「清涼飲料水製造業の許可施設」の名称・住所が必要 ⇒ 市販品なら材料欄に「市販のジュース」「市販のシロップ」のように記載。<br><br>
             ハム・チーズは通らないことが多い ⇒ 許可をもらうため、他の食材を記入。
           </div>
           <div class="ingredient-row"><span>①</span><input type="text" id="ingredient1" placeholder="例：豚肉"></div>
@@ -435,7 +435,7 @@
         <div class="field" data-field="drinkPermitFacility">
           <div class="sub-field hidden" id="drinkPermitFacilitySub">
             <label>清涼飲料水製造業の許可施設（名称・住所）</label>
-            <div class="help">自家製シロップは通らないことが多いです。清涼飲料水製造許可のある施設をお持ちの場合はこちらに名称・住所を記入してください。お持ちでない場合は、材料欄に「市販のシロップ」と記載してください。</div>
+            <div class="help">シロップ・ジュースなどのドリンクは、清涼飲料水製造業の許可施設の名称と住所を記入してください。市販品を使う場合は、材料欄に「市販のジュース」「市販のシロップ」のように書けば記入は不要です。</div>
             <input type="text" id="drinkPermitFacilityName" placeholder="施設名" style="margin-bottom:8px">
             <input type="text" id="drinkPermitFacilityAddress" placeholder="施設住所">
             <div class="field-error"></div>
@@ -862,14 +862,26 @@
   // 記載単位に書かれていれば市販品の宣言と見なし、その分は施設記載不要とする（フィールド全体での
   // 共起にすると「自家製シロップ、市販のレモン果汁」のような1欄複数品目で誤って打ち消してしまうため、
   // 品目の区切りとして使われがちな読点・カンマ・中黒・空白で区切って判定する）
+  // texts の先頭は食品名。食品名の該当キーワードと同じキーワードを含む「市販」の品目が材料欄などに
+  // ある場合は、食品名の該当を無視する（server.jsと同じ判定）
   function detectDrinkPermitNeeded(texts) {
     const list = Array.isArray(texts) ? texts : [texts];
-    for (const text of list) {
+    const marketKeywords = new Set();
+    for (let i = 1; i < list.length; i++) {
+      for (const segment of (list[i] || '').split(/[、,・\s]+/)) {
+        if (!segment.includes(MARKET_BOUGHT_MARKER)) continue;
+        for (const k of SELF_MADE_DRINK_KEYWORDS) if (segment.includes(k)) marketKeywords.add(k);
+      }
+    }
+    for (let i = 0; i < list.length; i++) {
+      const text = list[i];
       if (!text) continue;
       for (const segment of text.split(/[、,・\s]+/)) {
-        const hit = containsAny(segment, SELF_MADE_DRINK_KEYWORDS);
-        if (hit && !segment.includes(MARKET_BOUGHT_MARKER)) {
-          return hit;
+        if (segment.includes(MARKET_BOUGHT_MARKER)) continue;
+        for (const k of SELF_MADE_DRINK_KEYWORDS) {
+          if (!segment.includes(k)) continue;
+          if (i === 0 && marketKeywords.has(k)) continue;
+          return k;
         }
       }
     }
@@ -1086,7 +1098,7 @@
     const name = document.getElementById('drinkPermitFacilityName')?.value.trim() || '';
     const address = document.getElementById('drinkPermitFacilityAddress')?.value.trim() || '';
     if (!name || !address) {
-      setError('drinkPermitFacility', '自家製シロップは通らないことが多いです。清涼飲料水製造許可のある施設でない場合、許可をもらうため、「市販のシロップを使用」と記載お願いします。施設をお持ちの場合は施設の名称と住所を記入してください。');
+      setError('drinkPermitFacility', 'シロップ・ジュースなどのドリンクは、清涼飲料水製造業の許可施設の名称と住所が必要です。下の欄に記入するか、市販品なら材料欄に「市販のジュース」「市販のシロップ」のように書いてください。');
       return;
     }
     setError('drinkPermitFacility', null);
