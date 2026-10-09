@@ -108,10 +108,16 @@ app.use(express.json());
 
 // 受付の締切（日本時間）。サーバーが自分の時計で判断する。
 // FORM_CLOSE_AT で締切日時を、FORM_FORCE_OPEN=1 で常に受付中にできる（Renderの環境変数）。
-const FORM_CLOSE_AT = process.env.FORM_CLOSE_AT || '2026-10-12T13:00:00+09:00';
+const FORM_CLOSE_AT = process.env.FORM_CLOSE_AT || '2026-10-13T00:00:00+09:00';
 function isFormClosed() {
   if (process.env.FORM_FORCE_OPEN === '1') return false;
   return Date.now() >= new Date(FORM_CLOSE_AT).getTime();
+}
+// 締切の直前に入力を始めた人が、送信の瞬間に失敗しないよう、送信だけ猶予（分）を持たせる。
+const FORM_GRACE_MIN = Number(process.env.FORM_GRACE_MIN || 10);
+function isSubmitClosed() {
+  if (process.env.FORM_FORCE_OPEN === '1') return false;
+  return Date.now() >= new Date(FORM_CLOSE_AT).getTime() + FORM_GRACE_MIN * 60 * 1000;
 }
 app.use((req, res, next) => {
   if (req.method === 'GET' && (req.path === '/' || req.path === '/index.html') && isFormClosed()) {
@@ -1313,7 +1319,7 @@ async function sendConfirmationMail(d) {
 
 // ===== APIエンドポイント =====
 app.post('/api/submit', async (req, res) => {
-  if (isFormClosed()) {
+  if (isSubmitClosed()) {
     return res.status(403).json({ ok: false, closed: true, error: '臨時出店届の受付は終了しました。' });
   }
   try {
