@@ -97,8 +97,10 @@ function composeCookingMethodText(d) {
   const actionLabel = d.cookingAction === 'other' ? d.cookingActionOther : COOKING_ACTION_LABELS[d.cookingAction];
   const materialLabel = d.cookingCategory === 'drink'
     ? ((d.cookingIngredient === 'other' ? d.cookingIngredientOther : COOKING_INGREDIENT_LABELS[d.cookingIngredient]) || '材料')
-    : '食材';
-  return `${materialLabel}を${toolLabel || ''}で${actionLabel || ''}`;
+    : ((d.cookingIngredient === 'other' && d.cookingIngredientOther) || '食材');
+  // 器具が「なし」・空欄のときは「なしで」「で」を出さない（保健所から記載ミスと指摘された）
+  const toolText = toolLabel && toolLabel.trim() !== 'なし' ? `${toolLabel}で` : '';
+  return `${materialLabel}を${toolText}${actionLabel || ''}`;
 }
 
 const app = express();
