@@ -105,6 +105,21 @@ function composeCookingMethodText(d) {
 
 const app = express();
 app.use(express.json());
+
+// 受付の締切（日本時間）。サーバーが自分の時計で判断する。
+// FORM_CLOSE_AT で締切日時を、FORM_FORCE_OPEN=1 で常に受付中にできる（Renderの環境変数）。
+const FORM_CLOSE_AT = process.env.FORM_CLOSE_AT || '2026-10-12T13:00:00+09:00';
+function isFormClosed() {
+  if (process.env.FORM_FORCE_OPEN === '1') return false;
+  return Date.now() >= new Date(FORM_CLOSE_AT).getTime();
+}
+app.use((req, res, next) => {
+  if (req.method === 'GET' && (req.path === '/' || req.path === '/index.html') && isFormClosed()) {
+    res.set('Cache-Control', 'no-store');
+    return res.sendFile(path.join(__dirname, 'public', 'closed.html'));
+  }
+  next();
+});
 app.use(express.static(path.join(__dirname, 'public')));
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
@@ -1298,6 +1313,9 @@ async function sendConfirmationMail(d) {
 
 // ===== APIエンドポイント =====
 app.post('/api/submit', async (req, res) => {
+  if (isFormClosed()) {
+    return res.status(403).json({ ok: false, closed: true, error: '臨時出店届の受付は終了しました。' });
+  }
   try {
     const d = req.body || {};
 
