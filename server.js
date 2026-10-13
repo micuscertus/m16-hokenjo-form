@@ -119,8 +119,24 @@ function isSubmitClosed() {
   if (process.env.FORM_FORCE_OPEN === '1') return false;
   return Date.now() >= new Date(FORM_CLOSE_AT).getTime() + FORM_GRACE_MIN * 60 * 1000;
 }
+// 特別枠：Renderの環境変数 FORM_SPECIAL_KEY と同じ値を ?k= に付けて開いた人は、締切後でも入力・送信できる。
+// 開いたあとはクッキー（fk）で覚えるので、ページ内の送信もそのまま通る。キーは設定しなければ無効。
+const FORM_SPECIAL_KEY = process.env.FORM_SPECIAL_KEY || '';
+function hasSpecialKey(req) {
+  if (!FORM_SPECIAL_KEY) return false;
+  if (req.query && req.query.k === FORM_SPECIAL_KEY) return true;
+  const m = /(?:^|;\s*)fk=([^;]+)/.exec(req.headers.cookie || '');
+  if (!m) return false;
+  try { return decodeURIComponent(m[1]) === FORM_SPECIAL_KEY; } catch (e) { return false; }
+}
 app.use((req, res, next) => {
-  if (req.method === 'GET' && (req.path === '/' || req.path === '/index.html') && isFormClosed()) {
+  if (FORM_SPECIAL_KEY && req.query && req.query.k === FORM_SPECIAL_KEY) {
+    res.cookie('fk', FORM_SPECIAL_KEY, { httpOnly: true, sameSite: 'lax', maxAge: 14 * 24 * 60 * 60 * 1000 });
+  }
+  next();
+});
+app.use((req, res, next) => {
+  if (req.method === 'GET' && (req.path === '/' || req.path === '/index.html') && isFormClosed() && !hasSpecialKey(req)) {
     res.set('Cache-Control', 'no-store');
     return res.sendFile(path.join(__dirname, 'public', 'closed.html'));
   }
@@ -1319,7 +1335,7 @@ async function sendConfirmationMail(d) {
 
 // ===== APIエンドポイント =====
 app.post('/api/submit', async (req, res) => {
-  if (isSubmitClosed()) {
+  if (isSubmitClosed() && !hasSpecialKey(req)) {
     return res.status(403).json({ ok: false, closed: true, error: '臨時出店届の受付は終了しました。' });
   }
   try {
