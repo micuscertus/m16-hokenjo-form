@@ -980,6 +980,18 @@
   function detectVagueFillingWord(texts) {
     return [].concat(texts).filter(Boolean).join(' ').includes('具材');
   }
+  function detectVagueIngredients(ingredients) {
+    // 「野菜」「肉」のように種類を特定できない書き方を拾う（保健所は具体名を求める）
+    const re = /^(季節の|旬の|国産|有機|各種|いろいろな|色々な|お好みの|地元の|新鮮な)?(野菜類|野菜|お野菜|肉類|お肉|肉|魚介類|魚介|魚|果物|フルーツ|調味料|香辛料|スパイス|食材|材料|その他|いろいろ|色々|各種)$/;
+    const hits = [];
+    for (const raw of [].concat(ingredients)) {
+      const t = String(raw == null ? '' : raw).replace(/[\s　（）()]/g, '');
+      if (!t) continue;
+      const m = t.match(re);
+      if (m) hits.push(t);
+    }
+    return hits;
+  }
   function detectNonPlantWhipCream(texts) {
     const joined = [].concat(texts).filter(Boolean).join(' ');
     const hasCream = joined.includes('ホイップクリーム') || joined.includes('生クリーム');
@@ -1068,6 +1080,9 @@
     if (detectVagueFillingWord(ingList)) {
       issues.push('「具材」だけだと許可が通らないことが多いため、具体的な食材を2つほど記載してください。');
     }
+    detectVagueIngredients(ingList).forEach((v) => {
+      issues.push('「' + v + '」だけだと、何を使うのか分からず許可が通らないことが多いです。具体的な名前で記載してください（例：「野菜」ではなく「にんじん」「じゃがいも」）。');
+    });
 
     if (isCoffeeFoodName(foodName) && detectCoffeeBeanWording(ingList)) {
       issues.push('コーヒー豆は許可が通らない可能性があるので、コーヒー粉と記載してください。');
